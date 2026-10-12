@@ -221,7 +221,10 @@ both("long text may exceed the single-line limit", async () => {
   const id = await provision(long, {
     note: [{ id: "n", name: "Note", body: "" }],
   });
-  const body = "x".repeat(20000);
+  // Varied, so it is long even where the database compresses it.
+  const body = Array.from({ length: 2000 }, () =>
+    crypto.randomUUID().slice(0, 10),
+  ).join("");
   const ok = await commit(id, [
     {
       kind: "set",

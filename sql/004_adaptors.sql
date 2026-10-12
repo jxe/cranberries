@@ -66,7 +66,6 @@ create table public.dv_facts (
   seq bigint generated always as identity,
   primary key (document_id, collection, record, field, position)
 );
-create index dv_facts_value on public.dv_facts (document_id, collection, field, value);
 alter table public.dv_facts enable row level security;
 revoke all on public.dv_facts from anon, authenticated;
 grant all on public.dv_facts to service_role;
