@@ -226,12 +226,18 @@ export function EditableText({
     </span>
   );
 }
+// The one entry on the page that is open: shown in full, or being edited.
+const OpenEntry = createContext<{
+  entry: string | null;
+  setEntry: (entry: string | null) => void;
+}>({ entry: null, setEntry: () => {} });
 // Long text under a line. At rest it shows its first paragraph, up to five
-// lines, with a control to show the rest; editing it opens it.
-function Note({ children }: { children: ReactNode }) {
+// lines, with a control to show the rest; only the open entry shows it all.
+function Note({ entry, children }: { entry: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false),
-    [long, setLong] = useState(false);
+  const { entry: current, setEntry } = useContext(OpenEntry),
+    open = current === entry;
+  const [long, setLong] = useState(false);
   useLayoutEffect(() => {
     const el = ref.current,
       text = el?.firstElementChild;
@@ -254,11 +260,7 @@ function Note({ children }: { children: ReactNode }) {
   }, []);
   return (
     <div className="dv-note">
-      <div
-        ref={ref}
-        className={long && !open ? "dv-clamp" : undefined}
-        onFocus={() => setOpen(true)}
-      >
+      <div ref={ref} className={long && !open ? "dv-clamp" : undefined}>
         {children}
       </div>
       {long && (
@@ -266,7 +268,7 @@ function Note({ children }: { children: ReactNode }) {
           type="button"
           className="dv-more"
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
+          onClick={() => setEntry(open ? null : entry)}
         >
           {open ? "Show less" : "Show more"}
         </button>
@@ -425,6 +427,7 @@ export function DocumentEditor({
   const [viewIndex, setView] = useState(0),
     [open, setOpen] = useState<string | null>(null),
     [draft, setDraft] = useState<string | null>(null),
+    [entry, setEntry] = useState<string | null>(null),
     [query, setQuery] = useState("");
   const root = useRef<HTMLElement>(null);
   // Sorting uses the stamp a record had when first seen here, so a line does
@@ -680,305 +683,322 @@ export function DocumentEditor({
     state.status === "saved" ? "All changes saved" : state.status;
   return (
     <MenuContext.Provider value={{ open, setOpen }}>
-      <main
-        className={
-          config.line.some((name) => main[name].type === "longtext")
-            ? "dv-document dv-blocks"
-            : "dv-document"
-        }
-        ref={root}
-      >
-        <header>
-          <h1>{config.title}</h1>
-          <span
-            className="dv-save"
-            role="status"
-            title={state.error || statusText}
-            aria-label={state.error || statusText}
-          >
-            {state.status === "saved"
-              ? "✓"
-              : state.status === "saving"
-                ? "◌"
-                : state.status === "connecting"
-                  ? "◌"
-                  : "!"}
-          </span>
-          <span className="dv-presence-count" role="status">
-            {others > 0
-              ? `${others} ${others === 1 ? "other" : "others"} here`
-              : ""}
-          </span>
-          {identity && people && (
-            <Menu
-              id="me"
-              className="dv-me"
-              ariaLabel="Who you are"
-              label={
-                me ? (
-                  <>
-                    {renderPrefix(people, me)}
-                    {label(people, me)}
-                  </>
-                ) : (
-                  "Who are you?"
-                )
-              }
+      <OpenEntry.Provider value={{ entry, setEntry }}>
+        <main
+          className={
+            config.line.some((name) => main[name].type === "longtext")
+              ? "dv-document dv-blocks"
+              : "dv-document"
+          }
+          ref={root}
+        >
+          <header>
+            <h1>{config.title}</h1>
+            <span
+              className="dv-save"
+              role="status"
+              title={state.error || statusText}
+              aria-label={state.error || statusText}
             >
-              {everyone.map((r) => (
+              {state.status === "saved"
+                ? "✓"
+                : state.status === "saving"
+                  ? "◌"
+                  : state.status === "connecting"
+                    ? "◌"
+                    : "!"}
+            </span>
+            <span className="dv-presence-count" role="status">
+              {others > 0
+                ? `${others} ${others === 1 ? "other" : "others"} here`
+                : ""}
+            </span>
+            {identity && people && (
+              <Menu
+                id="me"
+                className="dv-me"
+                ariaLabel="Who you are"
+                label={
+                  me ? (
+                    <>
+                      {renderPrefix(people, me)}
+                      {label(people, me)}
+                    </>
+                  ) : (
+                    "Who are you?"
+                  )
+                }
+              >
+                {everyone.map((r) => (
+                  <button
+                    type="button"
+                    key={r.id}
+                    aria-pressed={r.id === me?.id}
+                    onClick={() => {
+                      identity.set(r.id);
+                      setOpen(null);
+                    }}
+                  >
+                    {renderPrefix(people, r)}
+                    {String(r.name)}
+                    {r.id === me?.id ? " ✓" : ""}
+                  </button>
+                ))}
+                {me && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      identity.set(undefined);
+                      setOpen(null);
+                    }}
+                  >
+                    Not me
+                  </button>
+                )}
+              </Menu>
+            )}
+            <nav aria-label="Group document">
+              {config.views.map((v, i) => (
                 <button
-                  type="button"
-                  key={r.id}
-                  aria-pressed={r.id === me?.id}
+                  key={i}
+                  aria-pressed={viewIndex === i}
                   onClick={() => {
-                    identity.set(r.id);
                     setOpen(null);
+                    setDraft(null);
+                    setEntry(null);
+                    setView(i);
                   }}
                 >
-                  {renderPrefix(people, r)}
-                  {String(r.name)}
-                  {r.id === me?.id ? " ✓" : ""}
+                  {v.label}
                 </button>
               ))}
-              {me && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    identity.set(undefined);
-                    setOpen(null);
-                  }}
-                >
-                  Not me
-                </button>
-              )}
-            </Menu>
-          )}
-          <nav aria-label="Group document">
-            {config.views.map((v, i) => (
-              <button
-                key={i}
-                aria-pressed={viewIndex === i}
-                onClick={() => {
-                  setOpen(null);
-                  setDraft(null);
-                  setView(i);
-                }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </nav>
-          {config.search && (
-            <input
-              className="dv-search"
-              type="search"
-              value={query}
-              placeholder={`Search ${noun(config.main)}s`}
-              aria-label={`Search ${noun(config.main)}s`}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          )}
-        </header>
-        {!state.realtime && (
-          <div className="dv-connection" role="status">
-            Live updates reconnecting.{" "}
-            {state.pending
-              ? "Changes waiting to save."
-              : state.status === "saved"
-                ? "All changes saved."
-                : "Checking saved changes."}
-          </div>
-        )}
-        {state.storageError && (
-          <div className="dv-error" role="alert">
-            {state.storageError}
-          </div>
-        )}
-        {state.error && (
-          <div className="dv-error" role="alert">
-            {state.pending > 0 && state.status !== "conflict"
-              ? "Changes not yet saved. "
-              : ""}
-            {state.error}{" "}
-            {state.status === "conflict" ? (
-              <>
-                <button
-                  onClick={() => {
-                    const blob = new Blob(
-                      [JSON.stringify(store.exportDraft(), null, 2)],
-                      { type: "application/json" },
-                    );
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "document-draft.json";
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
-                  }}
-                >
-                  Download my draft
-                </button>{" "}
-                <button onClick={store.useRemote}>Use shared version</button>
-              </>
-            ) : (
-              <button onClick={store.retry}>Retry</button>
+            </nav>
+            {config.search && (
+              <input
+                className="dv-search"
+                type="search"
+                value={query}
+                placeholder={`Search ${noun(config.main)}s`}
+                aria-label={`Search ${noun(config.main)}s`}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             )}
-          </div>
-        )}
-        {query.trim() && !arranged.length && (
-          <p className="dv-empty">No {noun(config.main)}s match.</p>
-        )}
-        {arranged.map((group) => (
-          <Fragment key={`${viewIndex}:${group.id}`}>
-            {!group.id && groupControl}
-            <section>
-              <h2 hidden={view.groupBy === undefined}>
-                {group.type
-                  ? (() => {
-                      const row = state.data[group.type].find(
-                        (r) => r.id === group.id,
-                      )!;
-                      return (
-                        <>
-                          {renderPrefix(group.type, row)}
-                          {text(group.type, row)}
-                        </>
+          </header>
+          {!state.realtime && (
+            <div className="dv-connection" role="status">
+              Live updates reconnecting.{" "}
+              {state.pending
+                ? "Changes waiting to save."
+                : state.status === "saved"
+                  ? "All changes saved."
+                  : "Checking saved changes."}
+            </div>
+          )}
+          {state.storageError && (
+            <div className="dv-error" role="alert">
+              {state.storageError}
+            </div>
+          )}
+          {state.error && (
+            <div className="dv-error" role="alert">
+              {state.pending > 0 && state.status !== "conflict"
+                ? "Changes not yet saved. "
+                : ""}
+              {state.error}{" "}
+              {state.status === "conflict" ? (
+                <>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob(
+                        [JSON.stringify(store.exportDraft(), null, 2)],
+                        { type: "application/json" },
                       );
-                    })()
-                  : group.name}
-              </h2>
-              <ul>
-                {group.rows.map((row) => {
-                  const occurrence = `${viewIndex}:${group.id}:${row.id}`;
-                  const colored = Object.entries(main).find(
-                    ([, d]) => d.type === "choice" && d.bullet,
-                  );
-                  const color =
-                    colored?.[1].type === "choice"
-                      ? colored[1].options.find(
-                          (o) => o.name === row[colored[0]],
-                        )?.color
-                      : undefined;
-                  return (
-                    <li key={row.id}>
-                      {colored && field(row, colored[0], occurrence)}
-                      {config.line
-                        .filter(
-                          (name) =>
-                            name !== colored?.[0] &&
-                            name !== groupField &&
-                            main[name].type !== "longtext",
-                        )
-                        .map((name, i) => (
-                          <Fragment key={name}>
-                            {i === 1 &&
-                              !(
-                                main[name].type === "many" && main[name].summary
-                              ) && <span className="dv-separator"> — </span>}
-                            <span
-                              style={
-                                main[name].type === "text"
-                                  ? { color }
-                                  : undefined
-                              }
-                            >
-                              {field(row, name, occurrence)}
-                            </span>
-                          </Fragment>
-                        ))}
-                      {config.line
-                        .filter((name) => main[name].type === "longtext")
-                        .map((name) => (
-                          <Note key={name}>
-                            <EditableText
-                              multiline
-                              readOnly={!can(config.main, row)}
-                              placeholder={`Add ${name}`}
-                              presenceKey={fieldKey(config.main, row.id, name)}
-                              value={String(row[name])}
-                              label={`${noun(config.main)} ${name}`}
-                              onChange={(v, b) =>
-                                store.set(config.main, row.id, name, v, b)
-                              }
-                            />
-                          </Note>
-                        ))}
-                      <Menu
-                        id={`${occurrence}:actions`}
-                        className="dv-actions"
-                        ariaLabel={`Options for ${row.name}`}
-                        label="···"
-                      >
-                        {groupType && (
-                          <>
-                            <span className="dv-menu-title">{view.label}</span>
-                            {state.data[groupType].map((related) => (
-                              <label className="dv-option" key={related.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={memberOf(row, related)}
-                                  disabled={
-                                    reverse
-                                      ? !can(reverse.collection, related)
-                                      : !can(config.main, row)
-                                  }
-                                  onChange={(e) =>
-                                    setMember(row, related, e.target.checked)
-                                  }
-                                />
-                                {String(related.name)}
-                              </label>
-                            ))}
-                          </>
-                        )}
-                        <button
-                          hidden={!can(config.main, row)}
-                          onClick={() => {
-                            store.remove(config.main, row.id);
-                            setOpen(null);
-                          }}
-                        >
-                          Remove {noun(config.main)}
-                        </button>
-                      </Menu>
-                    </li>
-                  );
-                })}
-                {draft === `${viewIndex}:${group.id}` && (
-                  <DraftLine
-                    noun={noun(config.main)}
-                    candidates={
-                      groupType && group.id
-                        ? state.data[config.main].filter(
-                            (r) => !group.rows.includes(r),
-                          )
-                        : []
-                    }
-                    onCreate={(name) => add(config.main, group.id, name)}
-                    onPick={(row) => {
-                      const related = state.data[groupType!].find(
-                        (r) => r.id === group.id,
-                      );
-                      if (related) setMember(row, related, true);
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "document-draft.json";
+                      a.click();
+                      setTimeout(() => URL.revokeObjectURL(url), 1000);
                     }}
-                    onClose={() => setDraft(null)}
-                  />
-                )}
-              </ul>
-              <button
-                className="dv-add-line"
-                aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
-                title="Add a line"
-                hidden={draft === `${viewIndex}:${group.id}`}
-                onClick={() => setDraft(`${viewIndex}:${group.id}`)}
-              >
-                ·
-              </button>
-            </section>
-          </Fragment>
-        ))}
-        {!arranged.some((g) => !g.id) && groupControl}
-      </main>
+                  >
+                    Download my draft
+                  </button>{" "}
+                  <button onClick={store.useRemote}>Use shared version</button>
+                </>
+              ) : (
+                <button onClick={store.retry}>Retry</button>
+              )}
+            </div>
+          )}
+          {query.trim() && !arranged.length && (
+            <p className="dv-empty">No {noun(config.main)}s match.</p>
+          )}
+          {arranged.map((group) => (
+            <Fragment key={`${viewIndex}:${group.id}`}>
+              {!group.id && groupControl}
+              <section>
+                <h2 hidden={view.groupBy === undefined}>
+                  {group.type
+                    ? (() => {
+                        const row = state.data[group.type].find(
+                          (r) => r.id === group.id,
+                        )!;
+                        return (
+                          <>
+                            {renderPrefix(group.type, row)}
+                            {text(group.type, row)}
+                          </>
+                        );
+                      })()
+                    : group.name}
+                </h2>
+                <ul>
+                  {group.rows.map((row) => {
+                    const occurrence = `${viewIndex}:${group.id}:${row.id}`;
+                    const colored = Object.entries(main).find(
+                      ([, d]) => d.type === "choice" && d.bullet,
+                    );
+                    const color =
+                      colored?.[1].type === "choice"
+                        ? colored[1].options.find(
+                            (o) => o.name === row[colored[0]],
+                          )?.color
+                        : undefined;
+                    return (
+                      <li
+                        key={row.id}
+                        // Editing an entry opens it, which closes any other.
+                        onFocus={(e) => {
+                          if (!e.target.closest(".dv-more"))
+                            setEntry(occurrence);
+                        }}
+                      >
+                        {colored && field(row, colored[0], occurrence)}
+                        {config.line
+                          .filter(
+                            (name) =>
+                              name !== colored?.[0] &&
+                              name !== groupField &&
+                              main[name].type !== "longtext",
+                          )
+                          .map((name, i) => (
+                            <Fragment key={name}>
+                              {i === 1 &&
+                                !(
+                                  main[name].type === "many" &&
+                                  main[name].summary
+                                ) && <span className="dv-separator"> — </span>}
+                              <span
+                                style={
+                                  main[name].type === "text"
+                                    ? { color }
+                                    : undefined
+                                }
+                              >
+                                {field(row, name, occurrence)}
+                              </span>
+                            </Fragment>
+                          ))}
+                        {config.line
+                          .filter((name) => main[name].type === "longtext")
+                          .map((name) => (
+                            <Note key={name} entry={occurrence}>
+                              <EditableText
+                                multiline
+                                readOnly={!can(config.main, row)}
+                                placeholder={`Add ${name}`}
+                                presenceKey={fieldKey(
+                                  config.main,
+                                  row.id,
+                                  name,
+                                )}
+                                value={String(row[name])}
+                                label={`${noun(config.main)} ${name}`}
+                                onChange={(v, b) =>
+                                  store.set(config.main, row.id, name, v, b)
+                                }
+                              />
+                            </Note>
+                          ))}
+                        <Menu
+                          id={`${occurrence}:actions`}
+                          className="dv-actions"
+                          ariaLabel={`Options for ${row.name}`}
+                          label="···"
+                        >
+                          {groupType && (
+                            <>
+                              <span className="dv-menu-title">
+                                {view.label}
+                              </span>
+                              {state.data[groupType].map((related) => (
+                                <label className="dv-option" key={related.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={memberOf(row, related)}
+                                    disabled={
+                                      reverse
+                                        ? !can(reverse.collection, related)
+                                        : !can(config.main, row)
+                                    }
+                                    onChange={(e) =>
+                                      setMember(row, related, e.target.checked)
+                                    }
+                                  />
+                                  {String(related.name)}
+                                </label>
+                              ))}
+                            </>
+                          )}
+                          <button
+                            hidden={!can(config.main, row)}
+                            onClick={() => {
+                              store.remove(config.main, row.id);
+                              setOpen(null);
+                            }}
+                          >
+                            Remove {noun(config.main)}
+                          </button>
+                        </Menu>
+                      </li>
+                    );
+                  })}
+                  {draft === `${viewIndex}:${group.id}` && (
+                    <DraftLine
+                      noun={noun(config.main)}
+                      candidates={
+                        groupType && group.id
+                          ? state.data[config.main].filter(
+                              (r) => !group.rows.includes(r),
+                            )
+                          : []
+                      }
+                      onCreate={(name) => add(config.main, group.id, name)}
+                      onPick={(row) => {
+                        const related = state.data[groupType!].find(
+                          (r) => r.id === group.id,
+                        );
+                        if (related) setMember(row, related, true);
+                      }}
+                      onClose={() => setDraft(null)}
+                    />
+                  )}
+                </ul>
+                <button
+                  className="dv-add-line"
+                  aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
+                  title="Add a line"
+                  hidden={draft === `${viewIndex}:${group.id}`}
+                  onClick={() => setDraft(`${viewIndex}:${group.id}`)}
+                >
+                  ·
+                </button>
+              </section>
+            </Fragment>
+          ))}
+          {!arranged.some((g) => !g.id) && groupControl}
+        </main>
+      </OpenEntry.Provider>
     </MenuContext.Provider>
   );
 }
