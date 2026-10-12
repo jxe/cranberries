@@ -2,6 +2,7 @@ import {
   apply,
   canEdit,
   equal,
+  titleAfter,
   validate,
   type Change,
   type Config,
@@ -34,6 +35,7 @@ export type DraftStorage = {
   clear(): void;
 };
 export type State = Snapshot & {
+  title: string;
   realtime: boolean;
   storageError: string;
   status: "connecting" | "saved" | "saving" | "offline" | "conflict" | "error";
@@ -74,6 +76,7 @@ export class DocumentStore {
     this.base = initial;
     this.state = {
       ...initial,
+      title: initial.title ?? config.title,
       status: "connecting",
       error: "",
       pending: 0,
@@ -149,6 +152,7 @@ export class DocumentStore {
     );
     this.state = {
       ...this.base,
+      title: titleAfter(this.base.title ?? this.config.title, this.queue),
       data,
       status,
       error,
@@ -180,6 +184,10 @@ export class DocumentStore {
         this.base.data,
       ),
       revision: change.revision,
+      title: titleAfter(
+        this.base.title ?? this.config.title,
+        change.operations,
+      ),
     };
     this.emit(
       this.queue.length ? this.state.status : "saved",
@@ -248,6 +256,12 @@ export class DocumentStore {
       previous.field === op.field
     )
       this.queue[this.queue.length - 1] = { ...op, before: previous.before };
+    else if (
+      op.kind === "title" &&
+      this.queue.length > start &&
+      previous?.kind === "title"
+    )
+      this.queue[this.queue.length - 1] = { ...op, before: previous.before };
     else this.queue.push(op);
     this.emit(this.blocked ? "conflict" : "saving");
     this.schedule();
@@ -270,6 +284,15 @@ export class DocumentStore {
     const op: Operation = { kind: "create", type, id: value.id, value };
     validate(this.config, apply(this.config, this.state.data, op));
     this.enqueue(op);
+  }
+  setTitle(value: string, expected?: string) {
+    if (!value.trim() || value.length > 500 || value === this.state.title)
+      return;
+    this.enqueue({
+      kind: "title",
+      before: expected ?? this.state.title,
+      value,
+    });
   }
   // Add or remove one member of a relationship.
   link(type: string, id: string, field: string, member: string, on = true) {

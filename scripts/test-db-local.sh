@@ -12,7 +12,7 @@ trap cleanup EXIT
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 initdb -D "$cluster" -A trust --no-locale --encoding=UTF8 >/dev/null
 pg_ctl -D "$cluster" -l "$cluster/server.log" -o "-p $port -h 127.0.0.1 -c wal_level=logical" start >/dev/null
-psql -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 -f test/bootstrap.sql -f sql/001_document_views.sql -f sql/002_longtext.sql -f sql/003_modified.sql -f test/legacy.sql -f sql/004_adaptors.sql >/dev/null
+psql -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 -f test/bootstrap.sql -f sql/001_document_views.sql -f sql/002_longtext.sql -f sql/003_modified.sql -f test/legacy.sql -f sql/004_adaptors.sql -f sql/005_title.sql >/dev/null
 # The same migrations must also install cleanly into a schema of their own.
 node scripts/sql.js elsewhere | psql -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 >/dev/null
 DV_TEST_DATABASE_URL="postgres://$(id -un)@127.0.0.1:$port/postgres" npm run test:db

@@ -41,7 +41,8 @@ export type GroupBy = string | { collection: string; field: string };
 // sort: "modified" puts the most recently changed first: rows in a flat or
 // field-grouped view, groups in a relationship view (whose rows keep its order).
 export type View = { label: string; groupBy?: GroupBy; sort?: "modified" };
-export type Snapshot = { data: Data; revision: number };
+// `title` is the document's saved title; the config's until someone changes it.
+export type Snapshot = { data: Data; revision: number; title?: string };
 // link and unlink change one member of a relationship, so two people changing
 // different members of the same one do not conflict.
 export type Operation =
@@ -60,6 +61,7 @@ export type Operation =
       field: string;
       value: string;
     }
+  | { kind: "title"; before: string; value: string }
   | { kind: "create"; type: string; id: string; value: Entity }
   | { kind: "delete"; type: string; id: string; before: Entity };
 // One committed write, as the change log records it and pages receive it.
@@ -280,6 +282,8 @@ export function search(
     )
     .filter((g) => g.rows.length);
 }
+export const titleAfter = (title: string, ops: Operation[]) =>
+  ops.reduce((t, op) => (op.kind === "title" ? op.value : t), title);
 // Whether the visitor who says they are `me` may change this record.
 export function canEdit(
   config: Config,
@@ -317,6 +321,8 @@ export function apply(
   at?: string,
 ): Data {
   const stamp = at ? { modified: at } : {};
+  // The title belongs to the document, not to its records.
+  if (op.kind === "title") return data;
   if (op.kind === "create")
     return {
       ...data,

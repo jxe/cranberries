@@ -697,7 +697,14 @@ export function DocumentEditor({
           ref={root}
         >
           <header>
-            <h1>{config.title}</h1>
+            <h1>
+              <EditableText
+                presenceKey={fieldKey("", "", "title")}
+                value={state.title}
+                label="Document title"
+                onChange={(v, b) => store.setTitle(v, b)}
+              />
+            </h1>
             <span
               className="dv-save"
               role="status"

@@ -393,3 +393,28 @@ test("a document from before adaptors keeps working, with its config rewritten",
   ]);
   assert.equal(r.snapshot.data.task[0].status, "Done");
 });
+both(
+  "the title is saved, checked against what the writer saw, and undone with its batch",
+  async () => {
+    const id = await create();
+    assert.equal((await read(id)).title, "Example");
+    const title = (before: string, value: string) => ({
+      kind: "title",
+      before,
+      value,
+    });
+    const a = await commit(id, [title("Example", "Renamed")]);
+    assert.equal(a.snapshot.title, "Renamed");
+    assert.ok((await commit(id, [title("Example", "Stale")])).conflict);
+    const b = await commit(id, [
+      title("Renamed", "Again"),
+      set("name", "Wrong", "Changed"),
+    ]);
+    assert.ok(b.conflict);
+    assert.equal((await read(id)).title, "Renamed");
+    await assert.rejects(
+      () => commit(id, [title("Renamed", " ")]),
+      /Invalid title/,
+    );
+  },
+);

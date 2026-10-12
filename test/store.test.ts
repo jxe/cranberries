@@ -29,6 +29,7 @@ function server() {
       if (receipts.has(id)) return { snapshot };
       let next = snapshot.data;
       for (const op of ops) {
+        if (op.kind === "title") continue;
         const row = next[op.type].find((r) => r.id === op.id);
         if (op.kind === "set" && !equal(row?.[op.field], op.before))
           return { snapshot, conflict: "Field conflict" };

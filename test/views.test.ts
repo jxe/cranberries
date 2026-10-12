@@ -278,3 +278,31 @@ test("people show an avatar: their picture, or initials", () => {
   assert.match(html, /src="\/grace.png"/);
   assert.match(html, />Ada</);
 });
+test("the title is saved with the document and starts as the config's", async () => {
+  const store = createMemoryDocument(config, { data, revision: 0 });
+  const stop = store.start();
+  assert.equal(store.getSnapshot().title, "Shelf");
+  store.setTitle("My shelf");
+  store.setTitle("  ");
+  store.setTitle("Our shelf");
+  assert.equal(store.getSnapshot().title, "Our shelf");
+  assert.equal(store.getSnapshot().pending, 1);
+  await store.flush();
+  assert.equal(store.getSnapshot().title, "Our shelf");
+  assert.equal(store.getSnapshot().status, "saved");
+  store.setTitle("Stale", "Shelf");
+  await store.flush();
+  assert.equal(store.getSnapshot().status, "conflict");
+  store.receive({
+    revision: 2,
+    at: "now",
+    operations: [{ kind: "title", before: "Our shelf", value: "Theirs" }],
+  });
+  store.useRemote();
+  assert.equal(store.getSnapshot().title, "Theirs");
+  assert.match(
+    renderToString(React.createElement(DocumentEditor, { store })),
+    /aria-label="Document title"[^>]*>Theirs</,
+  );
+  stop();
+});
