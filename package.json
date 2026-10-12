@@ -8,6 +8,7 @@
     "./react": "./src/react.tsx",
     "./app": "./src/app.tsx",
     "./seed": "./src/seed.ts",
+    "./server": "./src/server.ts",
     "./vite": {
       "types": "./src/vite.d.ts",
       "default": "./src/vite.js"

@@ -11,11 +11,32 @@ import { DocumentStore, type Transport } from "./store";
 // another schema (`npm run sql -- <schema>`), which is then passed as `schema`.
 const within = (client: SupabaseClient, schema?: string) =>
   schema ? (client.schema(schema) as unknown as SupabaseClient) : client;
+// Reads and writes go to the server function at `endpoint` (see server.ts).
+async function call(endpoint: string, documentId: string, body?: unknown) {
+  const response = await fetch(
+    `${endpoint}?document=${encodeURIComponent(documentId)}`,
+    {
+      signal: AbortSignal.timeout(15000),
+      ...(body
+        ? {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    },
+  );
+  const result = await response.json();
+  if (!response.ok) throw Error(result.message ?? "Request failed.");
+  return result;
+}
 export async function readDocument(
   client: SupabaseClient,
   documentId: string,
   schema?: string,
+  endpoint?: string,
 ): Promise<Snapshot> {
+  if (endpoint) return call(endpoint, documentId);
   const { data, error } = await within(client, schema)
     .rpc("dv_read", { document_id: documentId })
     .abortSignal(AbortSignal.timeout(15000));
@@ -27,9 +48,10 @@ export async function loadDocument(
   client: SupabaseClient,
   documentId: string,
   schema?: string,
+  endpoint?: string,
 ): Promise<Snapshot> {
   try {
-    return await readDocument(client, documentId, schema);
+    return await readDocument(client, documentId, schema, endpoint);
   } catch (error) {
     try {
       const saved = sessionStorage.getItem(
@@ -52,10 +74,17 @@ export function supabaseTransport(
   documentId: string,
   schema?: string,
   actor?: () => string | undefined,
+  endpoint?: string,
 ): Transport {
   return {
-    read: () => readDocument(client, documentId, schema),
+    read: () => readDocument(client, documentId, schema, endpoint),
     async commit(requestId, operations) {
+      if (endpoint)
+        return call(endpoint, documentId, {
+          requestId,
+          operations,
+          actor: actor?.() ?? null,
+        });
       const { data, error } = await within(client, schema)
         .rpc("dv_apply", {
           document_id: documentId,
@@ -75,7 +104,12 @@ export function supabaseTransport(
         refreshing = true;
         try {
           if (!client.realtime.isConnected()) client.realtime.connect();
-          const snapshot = await readDocument(client, documentId, schema);
+          const snapshot = await readDocument(
+            client,
+            documentId,
+            schema,
+            endpoint,
+          );
           if (alive) receive(snapshot);
         } catch {
           /* Writes have their own retry and error reporting. */
@@ -146,6 +180,8 @@ export function createSupabaseDocument(options: {
   initial: Snapshot;
   schema?: string;
   actor?: () => string | undefined;
+  // The server function that reads and writes, in place of database functions.
+  endpoint?: string;
 }) {
   const store = new DocumentStore(
     options.config,
@@ -155,6 +191,7 @@ export function createSupabaseDocument(options: {
       options.documentId,
       options.schema,
       options.actor,
+      options.endpoint,
     ),
     typeof window === "undefined"
       ? undefined

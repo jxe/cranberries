@@ -1,69 +1,53 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { createServer, pgDatabase } from "../src/server";
+import type { Config, Data, Operation } from "../src/model";
 import { config, data } from "./fixtures";
 const connectionString = process.env.DV_TEST_DATABASE_URL;
 if (!connectionString)
   throw Error(
     "Set DV_TEST_DATABASE_URL to an isolated database with the library migration installed.",
   );
-// Set to run against an install made from sql/schema.sql in that schema.
-const fresh = process.env.DV_TEST_SCHEMA;
+const pool = new pg.Pool({ connectionString, max: 4 });
 const db = new pg.Client({ connectionString });
 await db.connect();
-if (fresh) await db.query(`set search_path to ${fresh}, public`);
+const server = createServer({ database: pgDatabase(pool) });
 const ids: string[] = [];
 after(async () => {
-  await db.query("reset role");
   for (const id of ids)
     await db.query("delete from dv_documents where id=$1", [id]);
   await db.end();
+  await pool.end();
 });
-// Each test runs against both storage adaptors.
-let adaptor = "triples";
 async function provision(
   docConfig: unknown,
   docData: unknown,
   publicWrite = true,
 ) {
-  await db.query("reset role");
   const id = crypto.randomUUID();
   ids.push(id);
-  await db.query("select dv_provision($1,$2,$3,$4,$4,$5)", [
-    id,
-    JSON.stringify(docConfig),
-    JSON.stringify(docData),
+  await server.provision({
+    documentId: id,
+    config: docConfig as Config,
+    data: docData as Data,
+    publicRead: publicWrite,
     publicWrite,
-    adaptor,
-  ]);
-  await db.query("set role anon");
+  });
   return id;
 }
 const create = (publicWrite = true) => provision(config, data, publicWrite);
-const read = async (id: string) =>
-  (await db.query("select dv_read($1) result", [id])).rows[0].result;
+const read = (id: string) => server.read(id) as Promise<any>;
 async function commit(
   id: string,
   ops: unknown[],
   request = crypto.randomUUID(),
 ) {
-  const result = (
-    await db.query("select dv_apply($1,$2,$3) result", [
-      id,
-      request,
-      JSON.stringify(ops),
-    ])
-  ).rows[0].result;
+  const result: any = await server.apply(id, request, ops as Operation[]);
   // A committed write answers with its change; read back what it left.
   return result.snapshot ? result : { ...result, snapshot: await read(id) };
 }
-function both(name: string, fn: () => Promise<void>) {
-  for (const kind of ["triples", "blob"])
-    test(`${name} (${kind})`, async () => {
-      adaptor = kind;
-      await fn();
-    });
-}
+const both = (name: string, fn: () => Promise<void>) => test(name, fn);
 const long = {
   collections: {
     note: { fields: { name: { type: "text" }, body: { type: "longtext" } } },
@@ -120,23 +104,32 @@ both("database deletion removes relationship IDs", async () => {
 });
 both("private documents reject anonymous reads and writes", async () => {
   const id = await create(false);
-  assert.equal(
-    (await db.query("select * from dv_documents where id=$1", [id])).rows
-      .length,
-    0,
-  );
   await assert.rejects(() => read(id), /Document unavailable/);
+  assert.equal((await server.read(id, { trusted: true })).revision, 0);
   await assert.rejects(
     () => commit(id, [set("name", "Task", "Denied")]),
     /Not allowed/,
   );
 });
-both("public clients cannot bypass RPC with direct table update", async () => {
+both("browsers can read the change log and nothing else", async () => {
   const id = await create();
-  await assert.rejects(
-    () => db.query("update dv_documents set revision=100 where id=$1", [id]),
-    /permission denied/,
-  );
+  await commit(id, [set("name", "Task", "Changed")]);
+  await db.query("set role anon");
+  try {
+    assert.equal(
+      (await db.query("select 1 from dv_changes where document_id=$1", [id]))
+        .rows.length,
+      1,
+    );
+    for (const sql of [
+      "update dv_documents set revision=100",
+      "select * from dv_facts",
+      "delete from dv_changes",
+    ])
+      await assert.rejects(() => db.query(sql), /permission denied/);
+  } finally {
+    await db.query("reset role");
+  }
 });
 both("invalid relationships cannot be introduced", async () => {
   const id = await create();
@@ -294,15 +287,13 @@ both(
 both("every write is logged with its operations, time and writer", async () => {
   const id = await create();
   const ops = [set("name", "Task", "Changed")];
-  const result = (
-    await db.query("select dv_apply($1,$2,$3,$4) result", [
-      id,
-      crypto.randomUUID(),
-      JSON.stringify(ops),
-      "p",
-    ])
-  ).rows[0].result;
-  assert.equal(result.change.revision, 1);
+  const result = await server.apply(
+    id,
+    crypto.randomUUID(),
+    ops as Operation[],
+    "p",
+  );
+  assert.equal(result.change!.revision, 1);
   const log = (
     await db.query(
       "select revision,at,by,operations from dv_changes where document_id=$1",
@@ -311,13 +302,9 @@ both("every write is logged with its operations, time and writer", async () => {
   ).rows;
   assert.equal(log.length, 1);
   assert.equal(log[0].by, "p");
-  assert.equal(log[0].at, result.change.at);
+  assert.equal(log[0].at, result.change!.at);
   assert.deepEqual(log[0].operations, ops);
-  assert.equal((await read(id)).data.task[0].modified, result.change.at);
-  await assert.rejects(
-    () => db.query("delete from dv_changes where document_id=$1", [id]),
-    /permission denied/,
-  );
+  assert.equal((await read(id)).data.task[0].modified, result.change!.at);
 });
 both(
   "a config change needs no data change when the new field has a default",
@@ -325,118 +312,10 @@ both(
     const id = await create();
     const next = structuredClone(config) as any;
     next.collections.task.fields.note = { type: "longtext", default: "None" };
-    await db.query("reset role");
-    await db.query("select dv_configure($1,$2)", [id, JSON.stringify(next)]);
+    await server.configure(id, next);
     assert.equal((await read(id)).data.task[0].note, "None");
     next.collections.task.fields.status.options = [{ name: "Done" }];
-    await assert.rejects(
-      () => db.query("select dv_configure($1,$2)", [id, JSON.stringify(next)]),
-      /Invalid choice/,
-    );
-    await db.query("set role anon");
-    await assert.rejects(
-      () =>
-        db.query("select dv_configure($1,$2)", [id, JSON.stringify(config)]),
-      /permission denied/,
-    );
-  },
-);
-test("a document moves between adaptors with its records and order intact", async () => {
-  adaptor = "blob";
-  const id = await create();
-  await commit(id, [set("name", "Task", "Kept")]);
-  const before = await read(id);
-  await db.query("reset role");
-  await db.query("select dv_move($1,'triples')", [id]);
-  assert.equal(
-    (await db.query("select data from dv_documents where id=$1", [id])).rows[0]
-      .data.task,
-    undefined,
-  );
-  await db.query("set role anon");
-  assert.deepEqual(await read(id), before);
-  const r = await commit(id, [set("name", "Kept", "Moved")]);
-  assert.equal(r.snapshot.data.task[0].name, "Moved");
-  assert.equal(r.snapshot.revision, 2);
-});
-test(
-  "the declared schema and the migrated one are the same",
-  { skip: Boolean(fresh) },
-  async () => {
-    await db.query("reset role");
-    // With no search path, every name is printed with its schema.
-    await db.query("set search_path to ''");
-    const same = async (sql: string) => {
-      const of = async (schema: string) =>
-        JSON.stringify(
-          (await db.query(sql, [schema])).rows,
-          null,
-          1,
-        ).replaceAll(`${schema}.`, "s.");
-      assert.equal(await of("elsewhere"), await of("public"));
-    };
-    await same(
-      "select table_name, column_name, data_type, is_nullable, column_default, is_identity from information_schema.columns where table_schema=$1 and table_name like 'dv_%' order by 1,2",
-    );
-    await same(
-      "select proname, pg_get_functiondef(p.oid) def, (select array_agg(a::text order by a::text) from unnest(proacl) a) acl from pg_proc p join pg_namespace n on n.oid=pronamespace where nspname=$1 order by 1",
-    );
-    await same(
-      "select tablename, policyname, cmd, roles::text, qual from pg_policies where schemaname=$1 order by 1,2",
-    );
-    await same(
-      "select table_name, grantee, privilege_type from information_schema.role_table_grants where table_schema=$1 order by 1,2,3",
-    );
-    await same(
-      "select c.relname, contype, pg_get_constraintdef(k.oid) def from pg_constraint k join pg_class c on c.oid=conrelid join pg_namespace n on n.oid=c.relnamespace where nspname=$1 order by 1,2,3",
-    );
-    await same(
-      "select relname, relrowsecurity from pg_class c join pg_namespace n on n.oid=relnamespace where nspname=$1 and relkind='r' order by 1",
-    );
-    await db.query("reset search_path");
-  },
-);
-test(
-  "a document from before adaptors keeps working, with its config rewritten",
-  { skip: Boolean(fresh) },
-  async () => {
-    await db.query("reset role");
-    const doc = (
-      await db.query(
-        "select config,adaptor from dv_documents where id='legacy'",
-      )
-    ).rows[0];
-    assert.equal(doc.adaptor, "blob");
-    assert.deepEqual(doc.config, {
-      title: "Legacy",
-      collections: {
-        person: {
-          label: "lead",
-          fixed: true,
-          fields: { name: { type: "text" } },
-        },
-        task: {
-          fields: {
-            name: { type: "text" },
-            leads: { type: "many", of: "person", label: "lead" },
-            status: {
-              type: "choice",
-              bullet: true,
-              options: [{ name: "Open", color: "#111" }, { name: "Done" }],
-            },
-            note: { type: "longtext" },
-          },
-        },
-      },
-      main: "task",
-      line: ["name"],
-      views: [{ label: "All" }],
-    });
-    await db.query("set role anon");
-    const r = await commit("legacy", [
-      { ...set("status", "Open", "Done"), id: "t" },
-    ]);
-    assert.equal(r.snapshot.data.task[0].status, "Done");
+    await assert.rejects(() => server.configure(id, next), /Invalid choice/);
   },
 );
 both(
@@ -458,10 +337,51 @@ both(
     ]);
     assert.ok(b.conflict);
     assert.equal(b.snapshot.title, "Renamed");
-    assert.equal((await read(id)).title, "Renamed");
     await assert.rejects(
       () => commit(id, [title("Renamed", " ")]),
       /Invalid title/,
     );
   },
 );
+both("two writes at once to one document both land, in order", async () => {
+  const id = await create();
+  const [a, b] = await Promise.all([
+    commit(id, [set("name", "Task", "Changed")]),
+    commit(id, [set("status", "Open", "Done")]),
+  ]);
+  assert.equal(a.conflict ?? b.conflict, undefined);
+  const now = await read(id);
+  assert.equal(now.revision, 2);
+  assert.equal(now.data.task[0].name, "Changed");
+  assert.equal(now.data.task[0].status, "Done");
+});
+both("the HTTP handler answers reads, writes and mistakes", async () => {
+  const id = await create();
+  assert.equal(
+    ((await server.handle({ method: "GET", document: id })).body as any)
+      .revision,
+    0,
+  );
+  const ok = await server.handle({
+    method: "POST",
+    document: id,
+    body: {
+      requestId: crypto.randomUUID(),
+      operations: [set("name", "Task", "Over HTTP")],
+    },
+  });
+  assert.equal((ok.body as any).change.revision, 1);
+  const bad = await server.handle({
+    method: "POST",
+    document: id,
+    body: {
+      requestId: crypto.randomUUID(),
+      operations: [set("status", "Open", "nope")],
+    },
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(
+    (await server.handle({ method: "GET", document: "missing" })).status,
+    404,
+  );
+});

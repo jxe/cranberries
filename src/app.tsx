@@ -17,6 +17,8 @@ export type DocumentAppOptions = {
   publishableKey?: string;
   // Where the migrations were installed, when not `public`.
   schema?: string;
+  // The server function that reads and writes (see `cranberries/server`).
+  endpoint?: string;
 } & Pick<DocumentEditorProps, "renderPrefix" | "renderLabel">;
 export function DocumentApp({
   initial,
@@ -25,6 +27,7 @@ export function DocumentApp({
   url,
   publishableKey,
   schema,
+  endpoint,
   renderPrefix,
   renderLabel,
 }: DocumentAppOptions & { initial: Snapshot }) {
@@ -44,6 +47,7 @@ export function DocumentApp({
           config,
           initial,
           schema,
+          endpoint,
           actor: identity.get,
         })
       : createMemoryDocument(config, initial);
@@ -90,6 +94,7 @@ export async function mountDocument(
             createClient(app.url, app.publishableKey),
             app.documentId,
             app.schema,
+            app.endpoint,
           )
         : { data: app.demoData, revision: 0 };
     root.render(wrap(<DocumentApp {...app} initial={initial} />));

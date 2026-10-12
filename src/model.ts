@@ -362,6 +362,21 @@ export function apply(
       });
   return result;
 }
+// One value against its field, apart from whether related records exist.
+export function checkValue(d: Field, v: unknown) {
+  if (d.type === "choice") {
+    if (typeof v !== "string" || !d.options.some((o) => o.name === v))
+      throw Error("Invalid choice.");
+  } else if (d.type !== "many") {
+    if (typeof v !== "string" || v.length > limits[d.type])
+      throw Error("Invalid text.");
+  } else if (
+    !Array.isArray(v) ||
+    v.some((id) => typeof id !== "string") ||
+    new Set(v).size !== v.length
+  )
+    throw Error("Invalid relationship.");
+}
 export function validate(config: Config, data: Data) {
   for (const [type, { fields }] of Object.entries(config.collections)) {
     if (!Array.isArray(data[type])) throw Error(`Missing collection ${type}`);
@@ -380,16 +395,12 @@ export function validate(config: Config, data: Data) {
         throw Error("Invalid modified time.");
       for (const [field, d] of Object.entries(fields)) {
         const v = row[field];
-        if (d.type === "choice") {
-          if (typeof v !== "string" || !d.options.some((o) => o.name === v))
-            throw Error("Invalid choice.");
-        } else if (d.type !== "many") {
-          if (typeof v !== "string" || v.length > limits[d.type])
-            throw Error("Invalid text.");
-        } else if (
-          !Array.isArray(v) ||
-          new Set(v).size !== v.length ||
-          v.some((id) => !(data[d.of] ?? []).some((r) => r.id === id))
+        checkValue(d, v);
+        if (
+          d.type === "many" &&
+          (v as string[]).some(
+            (id) => !(data[d.of] ?? []).some((r) => r.id === id),
+          )
         )
           throw Error("Invalid relationship.");
       }
