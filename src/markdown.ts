@@ -1,10 +1,11 @@
 // Light markdown for long text: links, bare URLs, **bold**, *italic*, `code`,
-// headings and list items. Everything else, including line breaks, is kept as
-// typed. It yields a tree, never HTML, so shared text cannot inject markup.
+// headings and list items. Blank lines divide the text into paragraphs; line
+// breaks within one are kept as typed. It yields a tree, never HTML, so shared
+// text cannot inject markup.
 export type Mark =
   | string
   | {
-      tag: "a" | "strong" | "em" | "code" | "h" | "li";
+      tag: "p" | "a" | "strong" | "em" | "code" | "h" | "li";
       href?: string;
       // The marker a list item was typed with, e.g. "-" or "2.".
       marker?: string;
@@ -31,9 +32,8 @@ function inline(text: string): Mark[] {
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
-export function markdown(text: string): Mark[] {
+function paragraph(lines: string[]): Mark {
   const out: Mark[] = [];
-  const lines = text.split("\n");
   lines.forEach((line, i) => {
     const heading = /^#{1,6}\s+(.*)$/.exec(line),
       item = /^(\s*)([-*•]|\d+[.)])\s+(.*)$/.exec(line);
@@ -50,5 +50,11 @@ export function markdown(text: string): Mark[] {
       if (i < lines.length - 1) out.push("\n");
     }
   });
-  return out;
+  return { tag: "p", children: out };
+}
+export function markdown(text: string): Mark[] {
+  return text
+    .split(/\n(?:[ \t]*\n)+/)
+    .filter((part) => part.trim())
+    .map((part) => paragraph(part.replace(/^\n+|\n+$/g, "").split("\n")));
 }

@@ -342,9 +342,15 @@
 .dv-empty {
   color: #bbb;
 }
+.dv-md-p + .dv-md-p {
+  margin-top: 0.4lh;
+}
 .dv-clamp {
   max-height: 5lh;
   overflow: hidden;
+}
+.dv-clamp .dv-md-p ~ .dv-md-p {
+  display: none;
 }
 .dv-more {
   display: block;

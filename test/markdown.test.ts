@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { markdown } from "../src/markdown";
+import { markdown as paragraphs, type Mark } from "../src/markdown";
+// The marks of a text that is one paragraph.
+const markdown = (text: string) => {
+  const [p, ...rest] = paragraphs(text) as Exclude<Mark, string>[];
+  assert.equal(rest.length, 0);
+  return p.children;
+};
 test("links, bare URLs and emphasis become marks; other text is kept", () => {
   assert.deepEqual(markdown("See [the rules](https://a.example/r), ok?"), [
     "See ",
@@ -34,13 +40,21 @@ test("only web and mail links are linked", () => {
   ]);
 });
 test("headings and list items are blocks; other line breaks survive", () => {
-  assert.deepEqual(markdown("# Setup\nfirst\n\n- one\n2. two\nlast"), [
+  assert.deepEqual(markdown("# Setup\nfirst\nsecond\n- one\n2. two\nlast"), [
     { tag: "h", children: ["Setup"] },
     "first",
     "\n",
+    "second",
     "\n",
     { tag: "li", marker: "•", children: ["one"] },
     { tag: "li", marker: "2.", children: ["two"] },
     "last",
   ]);
+});
+test("blank lines divide paragraphs, however many there are", () => {
+  assert.deepEqual(paragraphs("\none\ntwo\n\n \n\nthree\n\n"), [
+    { tag: "p", children: ["one", "\n", "two"] },
+    { tag: "p", children: ["three"] },
+  ]);
+  assert.deepEqual(paragraphs(" \n"), []);
 });

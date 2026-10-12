@@ -68,7 +68,8 @@ relationship view. The order is fixed when a record is first shown, so a line
 does not move while it is edited. Run `sql/003_modified.sql` after 002 for
 stamps and for long text up to 100,000 characters.
 
-A long text field past five lines is cut short with a "Show more" control.
+Blank lines divide long text into paragraphs. At rest a field shows its first
+paragraph, up to five lines, with a "Show more" control for the rest.
 
 To keep the library's tables apart from an existing application's, install the
 migrations into a schema of their own: `npm run sql -- myschema | psql ...`, add

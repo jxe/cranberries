@@ -63,7 +63,14 @@ function Menu({
     </span>
   );
 }
-const tags = { strong: "strong", em: "em", code: "code", h: "div", li: "div" };
+const tags = {
+  p: "div",
+  strong: "strong",
+  em: "em",
+  code: "code",
+  h: "div",
+  li: "div",
+};
 function markNodes(marks: Mark[]): Node[] {
   return marks.map((m) => {
     if (typeof m === "string") return document.createTextNode(m);
@@ -72,7 +79,7 @@ function markNodes(marks: Mark[]): Node[] {
       el.setAttribute("href", m.href!);
       el.setAttribute("target", "_blank");
       el.setAttribute("rel", "noopener noreferrer");
-    } else if (m.tag === "h" || m.tag === "li") {
+    } else if (m.tag === "p" || m.tag === "h" || m.tag === "li") {
       el.className = `dv-md-${m.tag}`;
       if (m.marker) el.dataset.marker = m.marker;
     }
@@ -209,8 +216,8 @@ export function EditableText({
     </span>
   );
 }
-// Long text under a line. Past five lines it is cut short with a control to
-// show the rest; editing it opens it.
+// Long text under a line. At rest it shows its first paragraph, up to five
+// lines, with a control to show the rest; editing it opens it.
 function Note({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false),
@@ -219,10 +226,17 @@ function Note({ children }: { children: ReactNode }) {
     const el = ref.current,
       text = el?.firstElementChild;
     if (!el || !(text instanceof HTMLElement)) return;
-    const measure = () =>
+    const measure = () => {
+      // While edited the text is raw; keep the last answer until it is at rest.
+      const first = text.querySelector(":scope > .dv-md-p");
+      if (text.contentEditable !== "false" || !(first instanceof HTMLElement))
+        return;
       setLong(
-        text.offsetHeight > parseFloat(getComputedStyle(el).lineHeight) * 5 + 1,
+        first.nextElementSibling !== null ||
+          first.offsetHeight >
+            parseFloat(getComputedStyle(el).lineHeight) * 5 + 1,
       );
+    };
     measure();
     const watch = new ResizeObserver(measure);
     watch.observe(text);
