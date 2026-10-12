@@ -5,5 +5,9 @@ export function cranberries(): {
   config(
     config: unknown,
     env: { mode: string },
-  ): { resolve: { dedupe: string[] }; define: Record<string, string> };
+  ): {
+    resolve: { dedupe: string[] };
+    optimizeDeps: { exclude: string[]; include: string[] };
+    define: Record<string, string>;
+  };
 };

@@ -25,6 +25,19 @@ export function cranberries() {
       return {
         // One copy of each, even when this package is linked from a sibling folder.
         resolve: { dedupe: ["react", "react-dom", "@supabase/supabase-js"] },
+        // This package is TypeScript source: serve it as site code, and pre-bundle
+        // the CommonJS packages it imports, which the dev server would otherwise miss.
+        optimizeDeps: {
+          exclude: ["cranberries"],
+          include: [
+            "react",
+            "react-dom",
+            "react-dom/client",
+            "react/jsx-runtime",
+            "react/jsx-dev-runtime",
+            "@supabase/supabase-js",
+          ],
+        },
         define: {
           "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(url),
           "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(key),
