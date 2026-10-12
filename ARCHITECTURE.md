@@ -41,6 +41,11 @@ merging, cursor sharing or live field locking. A delete checks the entity's valu
 and removes every relationship to it in the same transaction. Membership editing
 is a field edit, not entity deletion.
 
+`dv_apply` stamps a created or changed record with `modified`, a reserved key
+beside `id`. Clients never write it: the overlay of unsaved operations leaves it
+alone, and a delete is compared without it, so an edit followed by a delete in
+one batch is not a conflict.
+
 Each batch has a UUID receipt. A lost response can be retried without applying a
 mutation twice. Receipts deliberately have no automatic expiry: expiring one while
 a client may retry breaks idempotency. Long-term retention/compaction is future work.

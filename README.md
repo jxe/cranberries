@@ -58,6 +58,16 @@ that relationship's order), or not at all (omit `groupBy`). `fixed: ["person"]`
 lists collections whose members cannot be added or renamed in the editor.
 Run `sql/002_longtext.sql` after 001 before storing a `longtext` field.
 
+Long text shows light markdown when it is not being edited: links, bare URLs,
+`**bold**`, `*italic*`, `` `code` ``, `#` headings and `-` or `1.` list items.
+It is built as elements, never HTML. `search: true` adds a box that filters lines
+by their text and related names. Every write stamps its record with `modified`
+(set by the database, not editable); `sort: "modified"` on a view puts the most
+recently changed first: rows in a flat or field-grouped view, groups in a
+relationship view. The order is fixed when a record is first shown, so a line
+does not move while it is edited. Run `sql/003_modified.sql` after 002 for
+stamps and for long text up to 100,000 characters.
+
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
 `provisionDocument(secretClient, {...})` creates a document row from a seed script.
 

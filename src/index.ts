@@ -1,4 +1,14 @@
-export { defineDocument, groups, newEntity, validate } from "./model";
+export {
+  defineDocument,
+  groups,
+  sortGroups,
+  search,
+  newEntity,
+  validate,
+  limits,
+} from "./model";
+export { markdown } from "./markdown";
+export type { Mark } from "./markdown";
 export type {
   Config,
   Data,

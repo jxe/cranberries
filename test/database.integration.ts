@@ -157,3 +157,75 @@ test("long text accepts empty and multi-line values", async () => {
   assert.equal(result.conflict, undefined);
   assert.equal(result.snapshot.data.note[0].body, "");
 });
+test("writes stamp the record; a delete ignores the stamp it was sent", async () => {
+  const id = await create();
+  const a = await commit(id, [set("name", "Task", "Changed")]);
+  assert.match(a.snapshot.data.task[0].modified, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/);
+  assert.equal(a.snapshot.data.person[0].modified, undefined);
+  const made = await commit(id, [
+    {
+      kind: "create",
+      type: "task",
+      id: "n",
+      value: {
+        id: "n",
+        name: "New",
+        leads: [],
+        status: "Open",
+        modified: "1999",
+      },
+    },
+  ]);
+  assert.notEqual(made.snapshot.data.task[1].modified, "1999");
+  const gone = await commit(id, [
+    {
+      kind: "delete",
+      type: "task",
+      id: "t",
+      before: { ...data.task[0], name: "Changed" },
+    },
+  ]);
+  assert.equal(gone.conflict, undefined);
+  assert.deepEqual(
+    gone.snapshot.data.task.map((r: { id: string }) => r.id),
+    ["n"],
+  );
+});
+test("long text may exceed the single-line limit", async () => {
+  await db.query("reset role");
+  const id = crypto.randomUUID();
+  ids.push(id);
+  const long = {
+    schema: { note: { name: "text", body: "longtext" } },
+    collection: "note",
+  };
+  await db.query(
+    "insert into dv_documents(id,config,data,public_read,public_write) values($1,$2,$3,true,true)",
+    [id, long, { note: [{ id: "n", name: "Note", body: "" }] }],
+  );
+  await db.query("set role anon");
+  const body = "x".repeat(20000);
+  const ok = await commit(id, [
+    {
+      kind: "set",
+      type: "note",
+      id: "n",
+      field: "body",
+      before: "",
+      value: body,
+    },
+  ]);
+  assert.equal(ok.snapshot.data.note[0].body.length, 20000);
+  await assert.rejects(() =>
+    commit(id, [
+      {
+        kind: "set",
+        type: "note",
+        id: "n",
+        field: "name",
+        before: "Note",
+        value: body,
+      },
+    ]),
+  );
+});

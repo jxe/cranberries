@@ -14,7 +14,7 @@ export function createMemoryDocument(config: Config, initial: Snapshot) {
         const row = data[op.type]?.find((r) => r.id === op.id);
         if (op.kind === "set" && !equal(row?.[op.field], op.before))
           return { snapshot, conflict: "The field changed." };
-        data = apply(config, data, op);
+        data = apply(config, data, op, new Date().toISOString());
       }
       snapshot = { data, revision: snapshot.revision + 1 };
       receive?.(snapshot);

@@ -9,7 +9,15 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { groups, newEntity, type Entity, type Field } from "./model";
+import {
+  groups,
+  newEntity,
+  search,
+  sortGroups,
+  type Entity,
+  type Field,
+} from "./model";
+import { markdown, type Mark } from "./markdown";
 import { DocumentStore } from "./store";
 import { fieldKey, usePresence, type PresenceOptions } from "./presence";
 const MenuContext = createContext<{
@@ -55,6 +63,23 @@ function Menu({
     </span>
   );
 }
+const tags = { strong: "strong", em: "em", code: "code", h: "div", li: "div" };
+function markNodes(marks: Mark[]): Node[] {
+  return marks.map((m) => {
+    if (typeof m === "string") return document.createTextNode(m);
+    const el = document.createElement(m.tag === "a" ? "a" : tags[m.tag]);
+    if (m.tag === "a") {
+      el.setAttribute("href", m.href!);
+      el.setAttribute("target", "_blank");
+      el.setAttribute("rel", "noopener noreferrer");
+    } else if (m.tag === "h" || m.tag === "li") {
+      el.className = `dv-md-${m.tag}`;
+      if (m.marker) el.dataset.marker = m.marker;
+    }
+    el.append(...markNodes(m.children));
+    return el;
+  });
+}
 export function EditableText({
   value,
   onChange,
@@ -77,21 +102,31 @@ export function EditableText({
     initial = useRef(value),
     previous = useRef(value),
     latest = useRef(value),
+    shown = useRef<string | null>(null),
     composing = useRef(false);
   latest.current = value;
+  // At rest, multiline text shows its markdown; while edited it is the raw text.
+  const show = (el: HTMLSpanElement, text: string) => {
+    if (multiline) el.replaceChildren(...markNodes(markdown(text)));
+    else el.textContent = text;
+    shown.current = text;
+  };
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && el !== document.activeElement && el.textContent !== value)
-      el.textContent = value;
+    if (el && el.contentEditable === "false" && shown.current !== value)
+      show(el, value);
   }, [value]);
   // Browsers keep a trailing line break in an editable block; it is not content.
   const read = (el: HTMLSpanElement) => {
     const text = el.textContent ?? "";
     return multiline ? (text.trim() ? text.replace(/\n$/, "") : "") : text;
   };
+  const onLink = (e: { target: EventTarget }) =>
+    e.target instanceof Element && Boolean(e.target.closest("a"));
   const activate = (el: HTMLSpanElement) => {
     if (el.contentEditable === "false") {
-      previous.current = el.textContent ?? value;
+      previous.current = shown.current ?? value;
+      if (multiline) el.textContent = previous.current;
       el.contentEditable = multiline ? "plaintext-only" : "true";
     }
   };
@@ -116,11 +151,13 @@ export function EditableText({
       contentEditable={false}
       suppressContentEditableWarning
       onClick={(e) => {
+        // A link at rest opens; anywhere else starts editing.
+        if (e.currentTarget.contentEditable === "false" && onLink(e)) return;
         activate(e.currentTarget);
         e.currentTarget.focus();
       }}
       onPointerDown={(e) => {
-        if (e.button === 0) activate(e.currentTarget);
+        if (e.button === 0 && !onLink(e)) activate(e.currentTarget);
       }}
       onFocus={(e) => {
         const el = e.currentTarget;
@@ -144,7 +181,7 @@ export function EditableText({
         const el = e.currentTarget;
         el.contentEditable = "false";
         if (!el.textContent?.trim() && onEmpty) onEmpty();
-        else el.textContent = latest.current;
+        else show(el, latest.current);
         const s = window.getSelection();
         if (s?.anchorNode && el.contains(s.anchorNode)) s.removeAllRanges();
       }}
@@ -303,8 +340,21 @@ export function DocumentEditor({
     config = store.config;
   const [viewIndex, setView] = useState(0),
     [open, setOpen] = useState<string | null>(null),
-    [draft, setDraft] = useState<string | null>(null);
+    [draft, setDraft] = useState<string | null>(null),
+    [query, setQuery] = useState("");
   const root = useRef<HTMLElement>(null);
+  // Sorting uses the stamp a record had when first seen here, so a line does
+  // not move while it is being edited. Reloading re-sorts.
+  const stamps = useRef(new Map<string, string | undefined>());
+  const stamp = (type: string, id: string) => {
+    const key = `${type}:${id}`;
+    if (!stamps.current.has(key))
+      stamps.current.set(
+        key,
+        state.data[type]?.find((r) => r.id === id)?.modified,
+      );
+    return stamps.current.get(key);
+  };
   const others = usePresence(root, presence);
   useEffect(() => {
     const outside = (e: Event) => {
@@ -362,7 +412,17 @@ export function DocumentEditor({
     : typeof descriptor === "object" && "many" in descriptor
       ? descriptor.many
       : null;
-  const arranged = groups(config, state.data, view.groupBy);
+  const arranged = search(
+    config,
+    state.data,
+    sortGroups(
+      view,
+      groups(config, state.data, view.groupBy),
+      stamp,
+      config.collection,
+    ),
+    query,
+  );
   const noun = (type: string) => config.labels?.[type] ?? type;
   const fixed = (type: string) => config.fixed?.includes(type) ?? false;
   const text = (type: string, row: Entity, field = "name") =>
@@ -560,6 +620,16 @@ export function DocumentEditor({
               </button>
             ))}
           </nav>
+          {config.search && (
+            <input
+              className="dv-search"
+              type="search"
+              value={query}
+              placeholder={`Search ${noun(config.collection)}s`}
+              aria-label={`Search ${noun(config.collection)}s`}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          )}
         </header>
         {!state.realtime && (
           <div className="dv-connection" role="status">
@@ -606,6 +676,9 @@ export function DocumentEditor({
               <button onClick={store.retry}>Retry</button>
             )}
           </div>
+        )}
+        {query.trim() && !arranged.length && (
+          <p className="dv-empty">No {noun(config.collection)}s match.</p>
         )}
         {arranged.map((group) => (
           <Fragment key={`${viewIndex}:${group.id}`}>
