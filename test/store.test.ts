@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DocumentStore, type Transport } from "../src/store";
-import { apply, equal, type Snapshot, type Operation } from "../src/model";
+import {
+  apply,
+  equal,
+  type Change,
+  type Snapshot,
+  type Operation,
+} from "../src/model";
 import { config, data } from "./fixtures";
 const tick = () => new Promise((r) => setTimeout(r, 5));
 function server() {
@@ -261,4 +267,100 @@ test("a timed-out write releases the queue and retries the same batch", async ()
   assert.equal(a.getSnapshot().pending, 0);
   assert.equal(ids[0], ids[1]);
   stop();
+});
+
+// A server that answers like the database: a change, not a whole snapshot.
+function changeServer() {
+  const s = server();
+  const feeds = new Set<(c: Change) => void>();
+  const transport: Transport = {
+    read: s.transport.read,
+    subscribe(fn, status) {
+      feeds.add(fn);
+      status(true);
+      return () => {
+        feeds.delete(fn);
+      };
+    },
+    async commit(id, operations) {
+      const before = s.get().revision;
+      const result = await s.transport.commit(id, operations);
+      if (result.conflict || s.get().revision === before) return result;
+      const change = {
+        revision: s.get().revision,
+        at: "2026-01-01T00:00:00.000Z",
+      };
+      feeds.forEach((fn) => fn({ ...change, operations }));
+      return { change };
+    },
+  };
+  return { ...s, transport, feeds };
+}
+test("pages stay in step from changes alone, without snapshots", async () => {
+  const s = changeServer(),
+    a = new DocumentStore(config, s.get(), s.transport),
+    b = new DocumentStore(config, s.get(), s.transport);
+  const stopA = a.start(),
+    stopB = b.start();
+  await tick();
+  a.set("task", "t", "name", "New");
+  await a.flush();
+  b.set("task", "t", "status", "Done");
+  await b.flush();
+  assert.deepEqual(a.getSnapshot().data, b.getSnapshot().data);
+  assert.equal(a.getSnapshot().data.task[0].name, "New");
+  assert.equal(a.getSnapshot().data.task[0].status, "Done");
+  assert.equal(
+    a.getSnapshot().data.task[0].modified,
+    "2026-01-01T00:00:00.000Z",
+  );
+  assert.equal(a.getSnapshot().revision, 2);
+  assert.equal(b.getSnapshot().status, "saved");
+  stopA();
+  stopB();
+});
+test("a missed change is noticed by its revision and the document re-read", async () => {
+  const s = changeServer(),
+    a = new DocumentStore(config, s.get(), s.transport);
+  const stop = a.start();
+  await tick();
+  s.feeds.clear();
+  await s.transport.commit(crypto.randomUUID(), [
+    {
+      kind: "set",
+      type: "task",
+      id: "t",
+      field: "status",
+      before: "Open",
+      value: "Done",
+    },
+  ]);
+  a.set("task", "t", "name", "Mine");
+  await a.flush();
+  assert.equal(a.getSnapshot().revision, 2);
+  assert.equal(a.getSnapshot().data.task[0].status, "Done");
+  assert.equal(a.getSnapshot().data.task[0].name, "Mine");
+  assert.equal(a.getSnapshot().pending, 0);
+  a.receive({ revision: 4, at: "x", operations: [] });
+  await tick();
+  assert.equal(a.getSnapshot().revision, 2);
+  stop();
+});
+test("two people adding different members to one relationship both succeed", async () => {
+  const s = server();
+  await s.transport.commit(crypto.randomUUID(), [
+    { kind: "create", type: "person", id: "q", value: { id: "q", name: "Q" } },
+    { kind: "create", type: "person", id: "r", value: { id: "r", name: "R" } },
+  ]);
+  const a = new DocumentStore(config, s.get(), s.transport),
+    b = new DocumentStore(config, s.get(), s.transport);
+  a.link("task", "t", "leads", "q");
+  b.link("task", "t", "leads", "r");
+  b.link("task", "t", "leads", "p", false);
+  await a.flush();
+  await b.flush();
+  assert.deepEqual(s.get().data.task[0].leads, ["q", "r"]);
+  assert.equal(b.getSnapshot().status, "saved");
+  a.start()();
+  b.start()();
 });

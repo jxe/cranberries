@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { validate, type Config, type Data, type Snapshot } from "./model";
+import {
+  validate,
+  type Change,
+  type Config,
+  type Data,
+  type Snapshot,
+} from "./model";
 import { DocumentStore, type Transport } from "./store";
 // The tables live in `public` unless the migrations were installed into
 // another schema (`npm run sql -- <schema>`), which is then passed as `schema`.
@@ -11,11 +17,8 @@ export async function readDocument(
   schema?: string,
 ): Promise<Snapshot> {
   const { data, error } = await within(client, schema)
-    .from("dv_documents")
-    .select("data,revision")
-    .eq("id", documentId)
-    .abortSignal(AbortSignal.timeout(15000))
-    .single();
+    .rpc("dv_read", { document_id: documentId })
+    .abortSignal(AbortSignal.timeout(15000));
   if (error) throw error;
   return data as Snapshot;
 }
@@ -43,10 +46,12 @@ export async function loadDocument(
     throw error;
   }
 }
+// `actor` names the person making the writes, for the change log.
 export function supabaseTransport(
   client: SupabaseClient,
   documentId: string,
   schema?: string,
+  actor?: () => string | undefined,
 ): Transport {
   return {
     read: () => readDocument(client, documentId, schema),
@@ -56,6 +61,7 @@ export function supabaseTransport(
           document_id: documentId,
           request_id: requestId,
           operations,
+          actor: actor?.() ?? null,
         })
         .abortSignal(AbortSignal.timeout(15000));
       if (error) throw error;
@@ -107,13 +113,13 @@ export function supabaseTransport(
         .on(
           "postgres_changes",
           {
-            event: "UPDATE",
+            event: "INSERT",
             schema: schema ?? "public",
-            table: "dv_documents",
-            filter: `id=eq.${documentId}`,
+            table: "dv_changes",
+            filter: `document_id=eq.${documentId}`,
           },
           (payload) => {
-            if (alive) receive(payload.new as Snapshot);
+            if (alive) receive(payload.new as Change);
           },
         )
         .subscribe((s) => {
@@ -139,11 +145,17 @@ export function createSupabaseDocument(options: {
   config: Config;
   initial: Snapshot;
   schema?: string;
+  actor?: () => string | undefined;
 }) {
   return new DocumentStore(
     options.config,
     options.initial,
-    supabaseTransport(options.client, options.documentId, options.schema),
+    supabaseTransport(
+      options.client,
+      options.documentId,
+      options.schema,
+      options.actor,
+    ),
     typeof window === "undefined"
       ? undefined
       : {
@@ -164,7 +176,8 @@ export function createSupabaseDocument(options: {
   );
 }
 // Trusted setup only: call with a secret-key client from a seed script, never a browser.
-// An existing document is left untouched.
+// An existing document is left untouched. Records go to the triple store unless
+// another storage adaptor is named.
 export async function provisionDocument(
   client: SupabaseClient,
   options: {
@@ -174,21 +187,29 @@ export async function provisionDocument(
     publicRead?: boolean;
     publicWrite?: boolean;
     schema?: string;
+    adaptor?: string;
   },
 ) {
   validate(options.config, options.data);
-  const { error } = await within(client, options.schema)
-    .from("dv_documents")
-    .upsert(
-      {
-        id: options.documentId,
-        config: options.config,
-        data: options.data,
-        revision: 0,
-        public_read: options.publicRead ?? false,
-        public_write: options.publicWrite ?? false,
-      },
-      { onConflict: "id", ignoreDuplicates: true },
-    );
+  const { error } = await within(client, options.schema).rpc("dv_provision", {
+    document_id: options.documentId,
+    config: options.config,
+    data: options.data,
+    public_read: options.publicRead ?? false,
+    public_write: options.publicWrite ?? false,
+    adaptor: options.adaptor ?? "triples",
+  });
+  if (error) throw error;
+}
+// Trusted setup only. Makes the stored config match the one in code, so writes
+// are checked against it. Refused if the document's records do not fit it.
+export async function syncDocument(
+  client: SupabaseClient,
+  options: { documentId: string; config: Config; schema?: string },
+) {
+  const { error } = await within(client, options.schema).rpc("dv_configure", {
+    document_id: options.documentId,
+    config: options.config,
+  });
   if (error) throw error;
 }

@@ -2,6 +2,7 @@ import {
   apply,
   equal,
   validate,
+  type Change,
   type Config,
   type Data,
   type Operation,
@@ -10,12 +11,19 @@ import {
 } from "./model";
 export type Transport = {
   read(): Promise<Snapshot>;
+  // A committed write answers with its `change`; a conflict or a replayed
+  // request answers with the current `snapshot`.
   commit(
     id: string,
     operations: Operation[],
-  ): Promise<{ snapshot: Snapshot; conflict?: string }>;
+  ): Promise<{
+    snapshot?: Snapshot;
+    change?: Omit<Change, "operations">;
+    conflict?: string;
+  }>;
+  // Pages are sent each committed change, or a whole snapshot.
   subscribe(
-    receive: (snapshot: Snapshot) => void,
+    receive: (update: Snapshot | Change) => void,
     status: (online: boolean) => void,
   ): () => void;
 };
@@ -139,15 +147,35 @@ export class DocumentStore {
     };
     this.listeners.forEach((fn) => fn());
   }
-  receive = (snapshot: Snapshot) => {
-    if (snapshot.revision >= this.base.revision) {
-      this.base = snapshot;
+  receive = (update: Snapshot | Change) => {
+    if ("operations" in update) {
+      // A gap means a change was missed: read the whole document again.
+      if (!this.advance(update) && update.revision > this.base.revision)
+        void this.transport.read().then(this.receive, () => {});
+    } else if (update.revision >= this.base.revision) {
+      this.base = update;
       this.emit(
         this.queue.length ? this.state.status : "saved",
         this.queue.length ? this.state.error : "",
       );
     }
   };
+  // Apply the change that directly follows the base. False if it is not that one.
+  private advance(change: Change) {
+    if (change.revision !== this.base.revision + 1) return false;
+    this.base = {
+      data: change.operations.reduce(
+        (d, op) => apply(this.config, d, op, change.at),
+        this.base.data,
+      ),
+      revision: change.revision,
+    };
+    this.emit(
+      this.queue.length ? this.state.status : "saved",
+      this.queue.length ? this.state.error : "",
+    );
+    return true;
+  }
   start = () => {
     this.users++;
     if (this.users === 1) {
@@ -232,6 +260,20 @@ export class DocumentStore {
     validate(this.config, apply(this.config, this.state.data, op));
     this.enqueue(op);
   }
+  // Add or remove one member of a relationship.
+  link(type: string, id: string, field: string, member: string, on = true) {
+    const row = this.state.data[type]?.find((r) => r.id === id);
+    if (!row || (row[field] as string[]).includes(member) === on) return;
+    const op: Operation = {
+      kind: on ? "link" : "unlink",
+      type,
+      id,
+      field,
+      value: member,
+    };
+    validate(this.config, apply(this.config, this.state.data, op));
+    this.enqueue(op);
+  }
   remove(type: string, id: string) {
     const before = this.state.data[type]?.find((r) => r.id === id);
     if (before) this.enqueue({ kind: "delete", type, id, before });
@@ -244,7 +286,14 @@ export class DocumentStore {
     this.persist();
     try {
       const result = await this.transport.commit(batch.id, batch.ops);
-      this.receive(result.snapshot);
+      if (result.snapshot) this.receive(result.snapshot);
+      // Our own change may already have arrived on the feed, or follow ones we missed.
+      if (
+        result.change &&
+        result.change.revision > this.base.revision &&
+        !this.advance({ ...result.change, operations: batch.ops })
+      )
+        this.receive(await this.transport.read());
       if (result.conflict) {
         this.blocked = true;
         this.emit("conflict", result.conflict);

@@ -4,11 +4,13 @@ import { DocumentStore } from "./store";
 export function createMemoryDocument(config: Config, initial: Snapshot) {
   let snapshot = initial;
   let receive: ((s: Snapshot) => void) | undefined;
+  const requests = new Set<string>();
   return new DocumentStore(config, snapshot, {
     async read() {
       return snapshot;
     },
-    async commit(_id, ops) {
+    async commit(id, ops) {
+      if (requests.has(id)) return { snapshot };
       let data = snapshot.data;
       for (const op of ops) {
         const row = data[op.type]?.find((r) => r.id === op.id);
@@ -17,6 +19,7 @@ export function createMemoryDocument(config: Config, initial: Snapshot) {
         data = apply(config, data, op, new Date().toISOString());
       }
       snapshot = { data, revision: snapshot.revision + 1 };
+      requests.add(id);
       receive?.(snapshot);
       return { snapshot };
     },

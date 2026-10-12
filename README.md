@@ -9,25 +9,24 @@ from GitHub: `npm install github:jxe/cranberries`.
 
 ```tsx
 import { createClient } from '@supabase/supabase-js';
-import { defineDocument, readDocument, createSupabaseDocument } from 'cranberries';
+import { c, defineDocument, readDocument, createSupabaseDocument } from 'cranberries';
 import { DocumentEditor } from 'cranberries/react';
 import 'cranberries/style.css';
 
+const person = c.person();
+const article = c.collection('article', {
+  name: c.text(),
+  authors: c.many(person),
+  stage: c.choice(['Draft', 'Review', 'Published']),
+});
 const config = defineDocument({
   title: 'Editorial plan',
-  schema: {
-    person: { name: 'text' },
-    article: {
-      name: 'text',
-      authors: { many: 'person' },
-      stage: { choices: ['Draft', 'Review', 'Published'] },
-    },
-  },
-  collection: 'article',
+  collections: [person, article],
+  main: article,
   line: ['name', 'authors', 'stage'],
   views: [
-    { label: 'By author', groupBy: 'authors' },
-    { label: 'By stage', groupBy: 'stage' },
+    c.view('By author', { groupBy: article.fields.authors }),
+    c.view('By stage', { groupBy: 'stage' }),
   ],
 });
 
@@ -39,37 +38,79 @@ const store = createSupabaseDocument({ client, documentId: 'editorial', config, 
 root.render(<DocumentEditor store={store} />);
 ```
 
-Provision a `dv_documents` row with matching config and data using a trusted server
-client. Every collection is an array of records with a string `id`, a text `name`,
-and all the fields declared in its schema. Relationships contain IDs, not names.
-Run `sql/001_document_views.sql` first. Realtime is enabled by that migration.
+Run the migrations in `sql/` in order, then create the document from a trusted
+seed script (see below). Every record has a string `id`, a text `name`, and the
+fields of its collection. Relationships contain IDs, not names.
 
-Optional presentation hints: relationship `label` and `summary: true` create a
-count badge; choice `colors` and `bullet: true` turn the choice into a colored
-bullet and tint text fields. `labels` supplies singular collection labels for
-add/remove controls. `renderPrefix(type, entity)` and `renderLabel(type, entity)`
-keep portraits or other app-specific rendering outside the library.
+## Configuration
 
-Field kinds: `"text"` (one required line), `"longtext"` (may be empty, keeps line
-breaks, shown under the line), `{ choices }` and `{ many }`. A view groups by a
-field of the collection (`groupBy: "authors"`), by another collection's
-relationship to it (`groupBy: { collection: "list", field: "games" }`, rows keep
-that relationship's order), or not at all (omit `groupBy`). `fixed: ["person"]`
-lists collections whose members cannot be added or renamed in the editor.
-Run `sql/002_longtext.sql` after 001 before storing a `longtext` field.
+A config is collections, the `main` one whose records are the lines, the `line`
+of fields shown, and `views`. The builders are a typed way to write plain data:
+
+```ts
+{
+  title: 'Editorial plan',
+  collections: {
+    person: { kind: 'person', fields: { name: { type: 'text' }, short: { type: 'text' }, image: { type: 'text' } } },
+    article: {
+      fields: {
+        name: { type: 'text' },
+        authors: { type: 'many', of: 'person' },
+        stage: { type: 'choice', options: [{ name: 'Draft' }, { name: 'Review' }, { name: 'Published' }] },
+      },
+    },
+  },
+  main: 'article',
+  line: ['name', 'authors', 'stage'],
+  views: [{ label: 'By author', groupBy: 'authors' }, { label: 'By stage', groupBy: 'stage' }],
+}
+```
+
+`defineDocument` accepts either, or a mix, and returns the plain form, which is
+what the database stores and checks writes against. `Infer<typeof article>` is
+the record type of a built collection.
+
+Fields: `c.text()` (one required line), `c.longtext()` (may be empty, keeps line
+breaks, shown under the line), `c.choice([...])` or `c.choice({ name: color })`,
+and `c.many(collection)`. Options chain: `.default(value)` fills the field in
+records written before it existed; `.bullet()` turns a choice into a colored
+bullet and tints text fields; `.label(noun)` and `.summary()` on a relationship
+name its members and show them as a count. On a collection, `.label(noun)` names
+one of its records and `.fixed()` stops members being added or renamed in the editor.
+
+`c.person()` is a collection of people, with `name`, `short` and `image` built
+in. People are drawn with an avatar (their image, or initials) and named by
+their short name where space is tight. `renderPrefix(type, entity)` and
+`renderLabel(type, entity)` replace either for app-specific rendering.
+
+A view groups by a field of the main collection, by another collection's
+relationship to it (rows keep that relationship's order), or not at all.
+`sort: "modified"` puts the most recently changed first: rows in a flat or
+field-grouped view, groups in a relationship view. The order is fixed when a
+record is first shown, so a line does not move while it is edited.
+`search: true` adds a box that filters lines by their text and related names.
 
 Long text shows light markdown when it is not being edited: links, bare URLs,
 `**bold**`, `*italic*`, `` `code` ``, `#` headings and `-` or `1.` list items.
-It is built as elements, never HTML. `search: true` adds a box that filters lines
-by their text and related names. Every write stamps its record with `modified`
-(set by the database, not editable); `sort: "modified"` on a view puts the most
-recently changed first: rows in a flat or field-grouped view, groups in a
-relationship view. The order is fixed when a record is first shown, so a line
-does not move while it is edited. Run `sql/003_modified.sql` after 002 for
-stamps and for long text up to 100,000 characters.
+It is built as elements, never HTML. Blank lines divide it into paragraphs. At
+rest a field shows its first paragraph, up to five lines, with "Show more".
 
-Blank lines divide long text into paragraphs. At rest a field shows its first
-paragraph, up to five lines, with a "Show more" control for the rest.
+## Storage
+
+Every committed write is one row in `dv_changes`: its operations, time and
+writer. That log is the history and the live feed; pages receive each change
+and apply it, and re-read the document if they miss one.
+
+Where the records themselves live is up to the document's storage adaptor, three
+database functions named `dv_<adaptor>_read`, `_apply` and `_init`. The default,
+`triples`, keeps one fact per row (`dv_facts`: record, field, value). `blob`
+keeps the whole document as one JSON value. To put records in tables of your
+own, write those three functions and name the adaptor when provisioning.
+`select dv_move('document', 'triples')` moves a document between adaptors.
+
+When the config in code changes, `syncDocument(secretClient, { documentId,
+config })` updates the stored copy. It is refused if existing records do not
+fit; give a new field a `default` and they do.
 
 To keep the library's tables apart from an existing application's, install the
 migrations into a schema of their own: `npm run sql -- myschema | psql ...`, add
@@ -77,11 +118,11 @@ that schema to the project's exposed schemas, and pass `schema: "myschema"` to
 `createSupabaseDocument`, `readDocument`, `mountDocument` and the seed helpers.
 
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
-`provisionDocument(secretClient, {...})` creates a document row from a seed script.
+`provisionDocument(secretClient, {...})` creates a document from a seed script.
 
 `useDocument(store)` exposes `{data, revision, status, error, pending}` for custom
-surrounding UI. `store.set`, `store.create`, and `store.remove` update shared
-entities. `store.exportDraft()` returns visible data and pending operations.
+surrounding UI. `store.set`, `store.link`, `store.create`, and `store.remove`
+update shared entities; `link` adds or removes one member of a relationship. `store.exportDraft()` returns visible data and pending operations.
 `store.useRemote()` explicitly discards pending changes after a conflict.
 
 ## A whole site in a few lines
@@ -107,6 +148,8 @@ await mountDocument(document.getElementById("root")!, {
 import { seedFromEnv } from "cranberries/seed";
 await seedFromEnv({ documentId: "editorial", config, data, publicRead: true });
 ```
+
+`seedFromEnv` creates the document if it is missing and otherwise syncs its config.
 
 The plugin only maps the host's Supabase URL and publishable key onto those two
 `import.meta.env` names. `wrap`, `renderPrefix` and `renderLabel` add site chrome.

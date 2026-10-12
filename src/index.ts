@@ -6,11 +6,18 @@ export {
   newEntity,
   validate,
   limits,
+  fieldsOf,
+  labelOf,
 } from "./model";
+export { c } from "./builder";
+export type { Infer } from "./builder";
 export { markdown } from "./markdown";
 export type { Mark } from "./markdown";
 export type {
+  Change,
+  Collection,
   Config,
+  ConfigInput,
   Data,
   Entity,
   Field,
@@ -28,5 +35,6 @@ export {
   readDocument,
   loadDocument,
   provisionDocument,
+  syncDocument,
 } from "./supabase";
 export { createMemoryDocument } from "./memory";

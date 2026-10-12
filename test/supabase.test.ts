@@ -33,13 +33,13 @@ test("Supabase adapter subscribes to its document and removes listeners on dispo
     (s) => statuses.push(s),
   );
   assert.deepEqual(filter, {
-    event: "UPDATE",
+    event: "INSERT",
     schema: "public",
-    table: "dv_documents",
-    filter: "id=eq.example",
+    table: "dv_changes",
+    filter: "document_id=eq.example",
   });
   statusCallback("SUBSCRIBED");
-  callback({ new: { data: {}, revision: 3 } });
+  callback({ new: { revision: 3, at: "now", operations: [] } });
   statusCallback("CHANNEL_ERROR");
   assert.deepEqual(statuses, [true, false]);
   assert.equal(received.length, 1);
@@ -64,7 +64,6 @@ test("database reads and writes have abort deadlines", async () => {
       signals.push(signal);
       return query;
     },
-    single: async () => ({ data: { revision: 0, data: {} }, error: null }),
     then(resolve: (v: unknown) => unknown) {
       return Promise.resolve({
         data: { snapshot: { revision: 1, data: {} } },
@@ -73,7 +72,6 @@ test("database reads and writes have abort deadlines", async () => {
     },
   };
   const client = {
-    from: () => query,
     rpc: () => query,
   } as unknown as SupabaseClient;
   const transport = supabaseTransport(client, "example");

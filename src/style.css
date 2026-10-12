@@ -141,12 +141,12 @@
   align-items: center;
   justify-content: center;
 }
-.dv-person {
+.dv-member {
   display: inline-block;
   white-space: nowrap;
   margin-right: 8px;
 }
-.dv-person:last-child {
+.dv-member:last-child {
   margin-right: 0;
 }
 .dv-separator {
@@ -360,4 +360,28 @@
 }
 .dv-more:hover {
   color: #777 !important;
+}
+.dv-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 5px;
+  vertical-align: middle;
+  position: relative;
+  top: -2px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: #555;
+  box-shadow: inset 0 0 0 1.5px #bbb;
+}
+.dv-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }

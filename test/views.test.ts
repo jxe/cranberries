@@ -10,22 +10,28 @@ import {
   sortGroups,
   validate,
 } from "../src/model";
+import { c, type Infer } from "../src/builder";
 import { createMemoryDocument } from "../src/memory";
 import { DocumentEditor } from "../src/react";
 const config = defineDocument({
   title: "Shelf",
-  schema: {
-    person: { name: "text" },
-    book: { name: "text", writers: { many: "person" }, notes: "longtext" },
-    shelf: { name: "text", books: { many: "book" } },
+  collections: {
+    person: { fixed: true, fields: { name: "text" } },
+    book: {
+      fields: {
+        name: "text",
+        writers: { type: "many", of: "person" },
+        notes: "longtext",
+      },
+    },
+    shelf: { fields: { name: "text", books: { type: "many", of: "book" } } },
   },
-  collection: "book",
+  main: "book",
   line: ["name", "writers", "notes"],
   views: [
     { label: "All" },
     { label: "Shelves", groupBy: { collection: "shelf", field: "books" } },
   ],
-  fixed: ["person"],
 });
 const data = {
   person: [{ id: "p", name: "Writer" }],
@@ -63,9 +69,7 @@ test("long text may be empty; a reverse view must point at the collection", () =
   assert.throws(() =>
     defineDocument({
       ...config,
-      views: [
-        { label: "x", groupBy: { collection: "book", field: "writers" } },
-      ],
+      views: [{ label: "x", groupBy: { collection: "shelf", field: "name" } }],
     }),
   );
 });
@@ -74,7 +78,7 @@ test("adding under a reverse group creates the row and its membership", async ()
   const stop = store.start();
   const row = newEntity(config, "book", "n");
   store.create("book", row);
-  store.set("shelf", "s", "books", ["b", "a", "n"]);
+  store.link("shelf", "s", "books", "n");
   await store.flush();
   assert.deepEqual(store.getSnapshot().data.shelf[0].books, ["b", "a", "n"]);
   store.remove("book", "a");
@@ -148,11 +152,117 @@ test("a commit stamps the written record; the unsaved overlay does not", async (
   assert.throws(() =>
     defineDocument({
       ...config,
-      schema: {
-        ...config.schema,
-        book: { ...config.schema.book, modified: "text" },
+      collections: {
+        ...config.collections,
+        book: {
+          fields: { ...config.collections.book.fields, modified: "text" },
+        },
       },
     }),
   );
   stop();
+});
+test("builders produce the stored shape; a person has built-in fields", () => {
+  const person = c.person().label("author").fixed();
+  const status = c.choice({ Draft: "#999", Done: "#090" }).bullet();
+  const game = c.collection("game", {
+    name: c.text(),
+    authors: c.many(person),
+    status,
+    notes: c.longtext().default("None yet"),
+  });
+  const list = c.collection("list", { name: c.text(), games: c.many(game) });
+  const built = defineDocument({
+    title: "Games",
+    collections: [person, game, list],
+    main: game,
+    line: ["name", "authors", "status"],
+    views: [
+      c.view("Authors", { groupBy: game.fields.authors }),
+      c.view("Lists", { groupBy: list.fields.games, sort: "modified" }),
+    ],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(built)), {
+    title: "Games",
+    collections: {
+      person: {
+        kind: "person",
+        label: "author",
+        fixed: true,
+        fields: {
+          name: { type: "text" },
+          short: { type: "text" },
+          image: { type: "text" },
+        },
+      },
+      game: {
+        fields: {
+          name: { type: "text" },
+          authors: { type: "many", of: "person" },
+          status: {
+            type: "choice",
+            options: [
+              { name: "Draft", color: "#999" },
+              { name: "Done", color: "#090" },
+            ],
+            bullet: true,
+          },
+          notes: { type: "longtext", default: "None yet" },
+        },
+      },
+      list: {
+        fields: {
+          name: { type: "text" },
+          games: { type: "many", of: "game" },
+        },
+      },
+    },
+    main: "game",
+    line: ["name", "authors", "status"],
+    views: [
+      { label: "Authors", groupBy: "authors" },
+      {
+        label: "Lists",
+        groupBy: { collection: "list", field: "games" },
+        sort: "modified",
+      },
+    ],
+  });
+  const row: Infer<typeof game> = {
+    id: "g",
+    name: "G",
+    authors: [],
+    status: "Draft",
+    notes: "",
+  };
+  assert.equal(newEntity(built, "game", "n").notes, "None yet");
+  assert.equal(row.status, "Draft");
+  // @ts-expect-error a choice is typed by its options
+  row.status = "Other";
+});
+test("people show an avatar: their picture, or initials", () => {
+  const people = defineDocument({
+    title: "Team",
+    collections: {
+      person: { kind: "person" },
+      job: { fields: { name: "text", who: { type: "many", of: "person" } } },
+    },
+    main: "job",
+    line: ["name", "who"],
+    views: [{ label: "All" }],
+  });
+  const store = createMemoryDocument(people, {
+    data: {
+      person: [
+        { id: "a", name: "Ada Lovelace", short: "Ada", image: "" },
+        { id: "g", name: "Grace Hopper", short: "", image: "/grace.png" },
+      ],
+      job: [{ id: "j", name: "Job", who: ["a", "g"] }],
+    },
+    revision: 0,
+  });
+  const html = renderToString(React.createElement(DocumentEditor, { store }));
+  assert.match(html, /dv-avatar[^>]*>Ad</);
+  assert.match(html, /src="\/grace.png"/);
+  assert.match(html, />Ada</);
 });

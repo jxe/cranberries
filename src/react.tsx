@@ -10,12 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  fieldsOf,
   groups,
+  labelOf,
   newEntity,
   search,
   sortGroups,
   type Entity,
-  type Field,
 } from "./model";
 import { markdown, type Mark } from "./markdown";
 import { DocumentStore } from "./store";
@@ -360,6 +361,19 @@ function DraftLine({
     </li>
   );
 }
+// A person's picture, or their initials without one.
+export function Avatar({ person }: { person: Entity }) {
+  const name = String(person.short || person.name);
+  return (
+    <span className="dv-avatar" title={String(person.name)}>
+      {person.image ? (
+        <img src={String(person.image)} alt="" referrerPolicy="no-referrer" />
+      ) : (
+        name.slice(0, 2)
+      )}
+    </span>
+  );
+}
 export function useDocument(store: DocumentStore) {
   const state = useSyncExternalStore(
     store.subscribe,
@@ -382,12 +396,15 @@ export function useDocument(store: DocumentStore) {
 export type DocumentEditorProps = {
   store: DocumentStore;
   presence?: PresenceOptions;
+  // Shown before a related record's name. People get their avatar unless this
+  // returns something else; return null for nothing.
   renderPrefix?: (type: string, entity: Entity) => ReactNode;
+  // A related record's name where it is not editable. People use their short name.
   renderLabel?: (type: string, entity: Entity) => ReactNode;
 };
 export function DocumentEditor({
   store,
-  renderPrefix,
+  renderPrefix: customPrefix,
   renderLabel,
   presence,
 }: DocumentEditorProps) {
@@ -455,8 +472,17 @@ export function DocumentEditor({
       document.removeEventListener("keydown", escape, true);
     };
   }, [open]);
+  const person = (type: string) => config.collections[type].kind === "person";
+  const renderPrefix = (type: string, row: Entity) => {
+    const custom = customPrefix?.(type, row);
+    return custom === undefined && person(type) ? (
+      <Avatar person={row} />
+    ) : (
+      custom
+    );
+  };
   const view = config.views[viewIndex],
-    main = config.schema[config.collection];
+    main = fieldsOf(config, config.main);
   // A view groups by a field of the collection, by another collection's
   // relationship to it (reverse), or not at all.
   const reverse = typeof view.groupBy === "object" ? view.groupBy : null,
@@ -464,8 +490,8 @@ export function DocumentEditor({
     descriptor = groupField ? main[groupField] : undefined;
   const groupType = reverse
     ? reverse.collection
-    : typeof descriptor === "object" && "many" in descriptor
-      ? descriptor.many
+    : descriptor?.type === "many"
+      ? descriptor.of
       : null;
   const arranged = search(
     config,
@@ -474,12 +500,12 @@ export function DocumentEditor({
       view,
       groups(config, state.data, view.groupBy),
       stamp,
-      config.collection,
+      config.main,
     ),
     query,
   );
-  const noun = (type: string) => config.labels?.[type] ?? type;
-  const fixed = (type: string) => config.fixed?.includes(type) ?? false;
+  const noun = (type: string) => labelOf(config, type);
+  const fixed = (type: string) => config.collections[type].fixed ?? false;
   const text = (type: string, row: Entity, field = "name") =>
     fixed(type) ? (
       <span>{String(row[field])}</span>
@@ -501,45 +527,38 @@ export function DocumentEditor({
   function setMember(row: Entity, related: Entity, member: boolean) {
     const [type, owner, field, id] = reverse
       ? [reverse.collection, related, reverse.field, row.id]
-      : [config.collection, row, groupField!, related.id];
-    const current = owner[field] as string[];
-    store.set(
-      type,
-      owner.id,
-      field,
-      member ? [...current, id] : current.filter((other) => other !== id),
-    );
+      : [config.main, row, groupField!, related.id];
+    store.link(type, owner.id, field, id, member);
   }
   const label = (type: string, row: Entity) =>
-    renderLabel?.(type, row) ?? String(row.name);
+    renderLabel?.(type, row) ?? String((person(type) && row.short) || row.name);
   function add(type: string, group?: string, name?: string) {
     const row = newEntity(config, type, crypto.randomUUID());
     if (name) row.name = name;
-    if (type === config.collection && group && groupField) {
-      row[groupField] =
-        typeof descriptor === "object" && "many" in descriptor
-          ? [group]
-          : group;
+    if (type === config.main && group && groupField) {
+      row[groupField] = descriptor?.type === "many" ? [group] : group;
     }
     store.create(type, row);
     const owner =
-      type === config.collection && group && reverse
+      type === config.main && group && reverse
         ? state.data[reverse.collection].find((r) => r.id === group)
         : undefined;
     if (owner && reverse)
-      store.set(reverse.collection, owner.id, reverse.field, [
-        ...(owner[reverse.field] as string[]),
-        row.id,
-      ]);
+      store.link(reverse.collection, owner.id, reverse.field, row.id);
   }
   function field(row: Entity, name: string, occurrence: string) {
     const d = main[name],
       value = row[name];
-    if (typeof d === "string") return text(config.collection, row, name);
-    if ("choices" in d)
+    if (d.type === "text" || d.type === "longtext")
+      return text(config.main, row, name);
+    const colors = (choice: string) =>
+      (d.type === "choice" &&
+        d.options.find((o) => o.name === choice)?.color) ||
+      "#999";
+    if (d.type === "choice")
       return (
         <Menu
-          presenceKey={fieldKey(config.collection, row.id, name)}
+          presenceKey={fieldKey(config.main, row.id, name)}
           id={`${occurrence}:${name}`}
           ariaLabel={`${name} for ${row.name}`}
           className={d.bullet ? "dv-bullet" : ""}
@@ -547,75 +566,66 @@ export function DocumentEditor({
             d.bullet ? (
               <i
                 className="dv-dot"
-                style={{ background: d.colors?.[String(value)] ?? "#999" }}
+                style={{ background: colors(String(value)) }}
               />
             ) : (
               String(value)
             )
           }
         >
-          {d.choices.map((choice) => (
+          {d.options.map(({ name: choice }) => (
             <button
               type="button"
               key={choice}
               aria-pressed={choice === value}
               onClick={() => {
-                store.set(config.collection, row.id, name, choice);
+                store.set(config.main, row.id, name, choice);
                 setOpen(null);
               }}
             >
-              <i
-                className="dv-dot"
-                style={{ background: d.colors?.[choice] ?? "#999" }}
-              />
+              <i className="dv-dot" style={{ background: colors(choice) }} />
               {choice}
               {choice === value ? " ✓" : ""}
             </button>
           ))}
         </Menu>
       );
-    const members = state.data[d.many].filter((r) =>
+    if (d.type !== "many") return null;
+    const members = state.data[d.of].filter((r) =>
       (value as string[]).includes(r.id),
     );
     if (name === groupField && d.summary) return null;
     return (
       <Menu
-        presenceKey={fieldKey(config.collection, row.id, name)}
+        presenceKey={fieldKey(config.main, row.id, name)}
         id={`${occurrence}:${name}`}
         ariaLabel={`${name} for ${row.name}`}
         className={d.summary ? "dv-count" : ""}
         label={
           d.summary
-            ? `${members.length} ${d.label ?? noun(d.many)}${members.length === 1 ? "" : "s"}`
+            ? `${members.length} ${d.label ?? noun(d.of)}${members.length === 1 ? "" : "s"}`
             : members.length
               ? members.map((r) => (
-                  <span className="dv-person" key={r.id}>
-                    {renderPrefix?.(d.many, r)}
-                    {label(d.many, r)}
+                  <span className="dv-member" key={r.id}>
+                    {renderPrefix(d.of, r)}
+                    {label(d.of, r)}
                   </span>
                 ))
-              : `No ${d.label ?? noun(d.many)}`
+              : `No ${d.label ?? noun(d.of)}`
         }
       >
-        {state.data[d.many].map((r) => (
+        {state.data[d.of].map((r) => (
           <span className="dv-option" key={r.id}>
             <input
               type="checkbox"
               aria-label={`Include ${r.name}`}
               checked={(value as string[]).includes(r.id)}
               onChange={(e) =>
-                store.set(
-                  config.collection,
-                  row.id,
-                  name,
-                  e.target.checked
-                    ? [...(value as string[]), r.id]
-                    : (value as string[]).filter((id) => id !== r.id),
-                )
+                store.link(config.main, row.id, name, r.id, e.target.checked)
               }
             />
-            {renderPrefix?.(d.many, r)}
-            {text(d.many, r)}
+            {renderPrefix(d.of, r)}
+            {text(d.of, r)}
           </span>
         ))}
       </Menu>
@@ -633,7 +643,7 @@ export function DocumentEditor({
     <MenuContext.Provider value={{ open, setOpen }}>
       <main
         className={
-          config.line.some((name) => main[name] === "longtext")
+          config.line.some((name) => main[name].type === "longtext")
             ? "dv-document dv-blocks"
             : "dv-document"
         }
@@ -680,8 +690,8 @@ export function DocumentEditor({
               className="dv-search"
               type="search"
               value={query}
-              placeholder={`Search ${noun(config.collection)}s`}
-              aria-label={`Search ${noun(config.collection)}s`}
+              placeholder={`Search ${noun(config.main)}s`}
+              aria-label={`Search ${noun(config.main)}s`}
               onChange={(e) => setQuery(e.target.value)}
             />
           )}
@@ -733,7 +743,7 @@ export function DocumentEditor({
           </div>
         )}
         {query.trim() && !arranged.length && (
-          <p className="dv-empty">No {noun(config.collection)}s match.</p>
+          <p className="dv-empty">No {noun(config.main)}s match.</p>
         )}
         {arranged.map((group) => (
           <Fragment key={`${viewIndex}:${group.id}`}>
@@ -747,7 +757,7 @@ export function DocumentEditor({
                       )!;
                       return (
                         <>
-                          {renderPrefix?.(group.type, row)}
+                          {renderPrefix(group.type, row)}
                           {text(group.type, row)}
                         </>
                       );
@@ -758,14 +768,13 @@ export function DocumentEditor({
                 {group.rows.map((row) => {
                   const occurrence = `${viewIndex}:${group.id}:${row.id}`;
                   const colored = Object.entries(main).find(
-                    ([, d]) =>
-                      typeof d === "object" && "choices" in d && d.bullet,
+                    ([, d]) => d.type === "choice" && d.bullet,
                   );
                   const color =
-                    colored &&
-                    typeof colored[1] === "object" &&
-                    "choices" in colored[1]
-                      ? colored[1].colors?.[String(row[colored[0]])]
+                    colored?.[1].type === "choice"
+                      ? colored[1].options.find(
+                          (o) => o.name === row[colored[0]],
+                        )?.color
                       : undefined;
                   return (
                     <li key={row.id}>
@@ -775,24 +784,19 @@ export function DocumentEditor({
                           (name) =>
                             name !== colored?.[0] &&
                             name !== groupField &&
-                            main[name] !== "longtext",
+                            main[name].type !== "longtext",
                         )
                         .map((name, i) => (
                           <Fragment key={name}>
                             {i === 1 &&
                               !(
-                                typeof main[name] === "object" &&
-                                "many" in
-                                  (main[name] as Exclude<Field, string>) &&
-                                (
-                                  main[name] as {
-                                    summary?: boolean;
-                                  }
-                                ).summary
+                                main[name].type === "many" && main[name].summary
                               ) && <span className="dv-separator"> — </span>}
                             <span
                               style={
-                                main[name] === "text" ? { color } : undefined
+                                main[name].type === "text"
+                                  ? { color }
+                                  : undefined
                               }
                             >
                               {field(row, name, occurrence)}
@@ -800,21 +804,17 @@ export function DocumentEditor({
                           </Fragment>
                         ))}
                       {config.line
-                        .filter((name) => main[name] === "longtext")
+                        .filter((name) => main[name].type === "longtext")
                         .map((name) => (
                           <Note key={name}>
                             <EditableText
                               multiline
                               placeholder={`Add ${name}`}
-                              presenceKey={fieldKey(
-                                config.collection,
-                                row.id,
-                                name,
-                              )}
+                              presenceKey={fieldKey(config.main, row.id, name)}
                               value={String(row[name])}
-                              label={`${noun(config.collection)} ${name}`}
+                              label={`${noun(config.main)} ${name}`}
                               onChange={(v, b) =>
-                                store.set(config.collection, row.id, name, v, b)
+                                store.set(config.main, row.id, name, v, b)
                               }
                             />
                           </Note>
@@ -844,11 +844,11 @@ export function DocumentEditor({
                         )}
                         <button
                           onClick={() => {
-                            store.remove(config.collection, row.id);
+                            store.remove(config.main, row.id);
                             setOpen(null);
                           }}
                         >
-                          Remove {noun(config.collection)}
+                          Remove {noun(config.main)}
                         </button>
                       </Menu>
                     </li>
@@ -856,15 +856,15 @@ export function DocumentEditor({
                 })}
                 {draft === `${viewIndex}:${group.id}` && (
                   <DraftLine
-                    noun={noun(config.collection)}
+                    noun={noun(config.main)}
                     candidates={
                       groupType && group.id
-                        ? state.data[config.collection].filter(
+                        ? state.data[config.main].filter(
                             (r) => !group.rows.includes(r),
                           )
                         : []
                     }
-                    onCreate={(name) => add(config.collection, group.id, name)}
+                    onCreate={(name) => add(config.main, group.id, name)}
                     onPick={(row) => {
                       const related = state.data[groupType!].find(
                         (r) => r.id === group.id,
@@ -877,7 +877,7 @@ export function DocumentEditor({
               </ul>
               <button
                 className="dv-add-line"
-                aria-label={`Add ${noun(config.collection)}${group.name ? ` under ${group.name}` : ""}`}
+                aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
                 title="Add a line"
                 hidden={draft === `${viewIndex}:${group.id}`}
                 onClick={() => setDraft(`${viewIndex}:${group.id}`)}

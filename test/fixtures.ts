@@ -1,19 +1,19 @@
 import { defineDocument } from "../src/model";
+import { c } from "../src/builder";
+const person = c.collection("person", { name: c.text() });
+const task = c.collection("task", {
+  name: c.text(),
+  leads: c.many(person),
+  status: c.choice(["Open", "Done"]),
+});
 export const config = defineDocument({
   title: "Example",
-  schema: {
-    person: { name: "text" },
-    task: {
-      name: "text",
-      leads: { many: "person" },
-      status: { choices: ["Open", "Done"] },
-    },
-  },
-  collection: "task",
+  collections: [person, task],
+  main: task,
   line: ["name", "leads", "status"],
   views: [
-    { label: "People", groupBy: "leads" },
-    { label: "Status", groupBy: "status" },
+    c.view("People", { groupBy: task.fields.leads }),
+    c.view("Status", { groupBy: "status" }),
   ],
 });
 export const data = {
