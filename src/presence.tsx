@@ -21,7 +21,8 @@ export function usePresence(
   options?: PresenceOptions,
   faces?: PresenceFaces,
 ) {
-  const [count, setCount] = useState(0);
+  // The people other visitors say they are; undefined for one who has not said.
+  const [others, setOthers] = useState<(string | undefined)[]>([]);
   const face = useRef(faces?.face);
   face.current = faces?.face;
   useEffect(() => {
@@ -148,7 +149,11 @@ export function usePresence(
           ) as unknown as typeof peers;
         // Other tabs in this browser share a visitor identity and aren't counted as another person.
         peers = peers.filter((p) => p.visitor !== visitor);
-        setCount(new Set(peers.map((p) => p.visitor)).size);
+        setOthers(
+          [...new Map(peers.map((p) => [p.visitor, p.person])).values()].map(
+            (person) => person || undefined,
+          ),
+        );
         paint();
       })
       .subscribe((status) => {
@@ -159,7 +164,7 @@ export function usePresence(
           publish();
         } else {
           peers = [];
-          setCount(0);
+          setOthers([]);
           paint();
         }
       });
@@ -189,5 +194,5 @@ export function usePresence(
       void options.client.removeChannel(channel);
     };
   }, [root, options?.client, options?.documentId, faces?.me]);
-  return count;
+  return others;
 }

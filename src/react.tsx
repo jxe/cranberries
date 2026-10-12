@@ -518,6 +518,10 @@ export function DocumentEditor({
       custom
     );
   };
+  // Visitors who have not said who they are, or said someone no longer here.
+  const unknown = others.filter(
+    (id) => !everyone.some((r) => r.id === id),
+  ).length;
   const view = config.views[viewIndex],
     main = fieldsOf(config, config.main);
   // A view groups by a field of the collection, by another collection's
@@ -708,10 +712,30 @@ export function DocumentEditor({
                     ? "◌"
                     : "!"}
             </span>
-            <span className="dv-presence-count" role="status">
-              {others > 0
-                ? `${others} ${others === 1 ? "other" : "others"} here`
-                : ""}
+            <span
+              className="dv-presence-count"
+              role="status"
+              aria-label={
+                others.length
+                  ? `${others.length} ${others.length === 1 ? "other" : "others"} here`
+                  : undefined
+              }
+            >
+              {people &&
+                [...new Set(others)].flatMap((id) => {
+                  const row = everyone.find((r) => r.id === id);
+                  return row ? (
+                    <Fragment key={row.id}>
+                      {renderPrefix(people, row)}
+                    </Fragment>
+                  ) : (
+                    []
+                  );
+                })}
+              {unknown > 0 &&
+                (others.length > unknown
+                  ? `+${unknown}`
+                  : `${unknown} ${unknown === 1 ? "other" : "others"} here`)}
             </span>
             {identity && people && (
               <Menu
