@@ -7,8 +7,11 @@ if (!connectionString)
   throw Error(
     "Set DV_TEST_DATABASE_URL to an isolated database with the library migration installed.",
   );
+// Set to run against an install made from sql/schema.sql in that schema.
+const fresh = process.env.DV_TEST_SCHEMA;
 const db = new pg.Client({ connectionString });
 await db.connect();
+if (fresh) await db.query(`set search_path to ${fresh}, public`);
 const ids: string[] = [];
 after(async () => {
   await db.query("reset role");
@@ -356,43 +359,86 @@ test("a document moves between adaptors with its records and order intact", asyn
   assert.equal(r.snapshot.data.task[0].name, "Moved");
   assert.equal(r.snapshot.revision, 2);
 });
-test("a document from before adaptors keeps working, with its config rewritten", async () => {
-  await db.query("reset role");
-  const doc = (
-    await db.query("select config,adaptor from dv_documents where id='legacy'")
-  ).rows[0];
-  assert.equal(doc.adaptor, "blob");
-  assert.deepEqual(doc.config, {
-    title: "Legacy",
-    collections: {
-      person: {
-        label: "lead",
-        fixed: true,
-        fields: { name: { type: "text" } },
-      },
-      task: {
-        fields: {
-          name: { type: "text" },
-          leads: { type: "many", of: "person", label: "lead" },
-          status: {
-            type: "choice",
-            bullet: true,
-            options: [{ name: "Open", color: "#111" }, { name: "Done" }],
+test(
+  "the declared schema and the migrated one are the same",
+  { skip: Boolean(fresh) },
+  async () => {
+    await db.query("reset role");
+    // With no search path, every name is printed with its schema.
+    await db.query("set search_path to ''");
+    const same = async (sql: string) => {
+      const of = async (schema: string) =>
+        JSON.stringify(
+          (await db.query(sql, [schema])).rows,
+          null,
+          1,
+        ).replaceAll(`${schema}.`, "s.");
+      assert.equal(await of("elsewhere"), await of("public"));
+    };
+    await same(
+      "select table_name, column_name, data_type, is_nullable, column_default, is_identity from information_schema.columns where table_schema=$1 and table_name like 'dv_%' order by 1,2",
+    );
+    await same(
+      "select proname, pg_get_functiondef(p.oid) def, (select array_agg(a::text order by a::text) from unnest(proacl) a) acl from pg_proc p join pg_namespace n on n.oid=pronamespace where nspname=$1 order by 1",
+    );
+    await same(
+      "select tablename, policyname, cmd, roles::text, qual from pg_policies where schemaname=$1 order by 1,2",
+    );
+    await same(
+      "select table_name, grantee, privilege_type from information_schema.role_table_grants where table_schema=$1 order by 1,2,3",
+    );
+    await same(
+      "select c.relname, contype, pg_get_constraintdef(k.oid) def from pg_constraint k join pg_class c on c.oid=conrelid join pg_namespace n on n.oid=c.relnamespace where nspname=$1 order by 1,2,3",
+    );
+    await same(
+      "select relname, relrowsecurity from pg_class c join pg_namespace n on n.oid=relnamespace where nspname=$1 and relkind='r' order by 1",
+    );
+    await db.query("reset search_path");
+  },
+);
+test(
+  "a document from before adaptors keeps working, with its config rewritten",
+  { skip: Boolean(fresh) },
+  async () => {
+    await db.query("reset role");
+    const doc = (
+      await db.query(
+        "select config,adaptor from dv_documents where id='legacy'",
+      )
+    ).rows[0];
+    assert.equal(doc.adaptor, "blob");
+    assert.deepEqual(doc.config, {
+      title: "Legacy",
+      collections: {
+        person: {
+          label: "lead",
+          fixed: true,
+          fields: { name: { type: "text" } },
+        },
+        task: {
+          fields: {
+            name: { type: "text" },
+            leads: { type: "many", of: "person", label: "lead" },
+            status: {
+              type: "choice",
+              bullet: true,
+              options: [{ name: "Open", color: "#111" }, { name: "Done" }],
+            },
+            note: { type: "longtext" },
           },
-          note: { type: "longtext" },
         },
       },
-    },
-    main: "task",
-    line: ["name"],
-    views: [{ label: "All" }],
-  });
-  await db.query("set role anon");
-  const r = await commit("legacy", [
-    { ...set("status", "Open", "Done"), id: "t" },
-  ]);
-  assert.equal(r.snapshot.data.task[0].status, "Done");
-});
+      main: "task",
+      line: ["name"],
+      views: [{ label: "All" }],
+    });
+    await db.query("set role anon");
+    const r = await commit("legacy", [
+      { ...set("status", "Open", "Done"), id: "t" },
+    ]);
+    assert.equal(r.snapshot.data.task[0].status, "Done");
+  },
+);
 both(
   "the title is saved, checked against what the writer saw, and undone with its batch",
   async () => {

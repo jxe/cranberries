@@ -38,8 +38,10 @@ const store = createSupabaseDocument({ client, documentId: 'editorial', config, 
 root.render(<DocumentEditor store={store} />);
 ```
 
-Run the migrations in `sql/` in order, then create the document from a trusted
-seed script (see below). Every record has a string `id`, a text `name`, and the
+Run `sql/schema.sql` on the database, then create the document from a trusted
+seed script (see below). The schema file declares everything the library needs
+and can be run again safely. The numbered files beside it are migrations for
+upgrading an older install's data; a new install does not need them. Every record has a string `id`, a text `name`, and the
 fields of its collection. Relationships contain IDs, not names.
 
 ## Configuration
@@ -90,8 +92,7 @@ browser and is a claim, not a login. Their writes are logged under that person
 their face on the field they are in.
 
 The config's `title` is where a document's title starts; it is then saved with
-the document and anyone who may write can change it in the page. Run
-`sql/005_title.sql` for that.
+the document and anyone who may write can change it in the page.
 
 `.ownedBy("authors")` on a collection names a relationship to people who own
 each record. A record with owners can be changed or removed only by a visitor
@@ -128,8 +129,8 @@ When the config in code changes, `syncDocument(secretClient, { documentId,
 config })` updates the stored copy. It is refused if existing records do not
 fit; give a new field a `default` and they do.
 
-To keep the library's tables apart from an existing application's, install the
-migrations into a schema of their own: `npm run sql -- myschema | psql ...`, add
+To keep the library's tables apart from an existing application's, install
+into a schema of their own: `npm run sql -- myschema schema | psql ...`, add
 that schema to the project's exposed schemas, and pass `schema: "myschema"` to
 `createSupabaseDocument`, `readDocument`, `mountDocument` and the seed helpers.
 
