@@ -81,3 +81,24 @@ test("database reads and writes have abort deadlines", async () => {
   assert.ok(signals.every((signal) => signal instanceof AbortSignal));
   assert.notEqual(signals[0], signals[1]);
 });
+test("a write names the person the visitor says they are", async () => {
+  let sent: any;
+  const query = {
+    abortSignal: () => query,
+    then: (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: { change: {} }, error: null }).then(resolve),
+  };
+  const client = {
+    rpc(_name: string, args: unknown) {
+      sent = args;
+      return query;
+    },
+  } as unknown as SupabaseClient;
+  let me: string | undefined = "ada";
+  const transport = supabaseTransport(client, "example", undefined, () => me);
+  await transport.commit("r", []);
+  assert.equal(sent.actor, "ada");
+  me = undefined;
+  await transport.commit("r", []);
+  assert.equal(sent.actor, null);
+});

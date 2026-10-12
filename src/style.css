@@ -242,6 +242,35 @@
   box-shadow: 0 2px 0 var(--dv-peer-color);
   border-radius: 2px;
 }
+.dv-text[data-presence-who] {
+  position: relative;
+}
+[data-presence-who]::after {
+  content: attr(data-presence-who);
+  position: absolute;
+  top: -12px;
+  right: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff var(--dv-peer-image, none) center / cover;
+  box-shadow: 0 0 0 1.5px var(--dv-peer-color);
+  color: #555;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+[data-presence-face]::after {
+  color: transparent;
+}
+.dv-me {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 14px;
+  line-height: 20px;
+}
 .dv-presence-count {
   grid-column: 1 / -1;
   color: #888;

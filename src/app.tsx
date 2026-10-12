@@ -7,6 +7,7 @@ import type { Config, Data, Snapshot } from "./model";
 import { createMemoryDocument } from "./memory";
 import { createSupabaseDocument, loadDocument } from "./supabase";
 import { DocumentEditor, type DocumentEditorProps } from "./react";
+import { createIdentity } from "./identity";
 export type DocumentAppOptions = {
   documentId: string;
   config: Config;
@@ -34,9 +35,17 @@ export function DocumentApp({
         })
       : null,
   );
+  const [identity] = useState(() => createIdentity(documentId));
   const [store] = useState(() =>
     client
-      ? createSupabaseDocument({ client, documentId, config, initial, schema })
+      ? createSupabaseDocument({
+          client,
+          documentId,
+          config,
+          initial,
+          schema,
+          actor: identity.get,
+        })
       : createMemoryDocument(config, initial),
   );
   return (
@@ -50,6 +59,7 @@ export function DocumentApp({
       <DocumentEditor
         store={store}
         presence={client ? { client, documentId } : undefined}
+        identity={identity}
         renderPrefix={renderPrefix}
         renderLabel={renderLabel}
       />

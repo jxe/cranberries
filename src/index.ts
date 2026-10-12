@@ -38,3 +38,5 @@ export {
   syncDocument,
 } from "./supabase";
 export { createMemoryDocument } from "./memory";
+export { createIdentity } from "./identity";
+export type { Identity } from "./identity";

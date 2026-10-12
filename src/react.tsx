@@ -21,6 +21,7 @@ import {
 import { markdown, type Mark } from "./markdown";
 import { DocumentStore } from "./store";
 import { fieldKey, usePresence, type PresenceOptions } from "./presence";
+import type { Identity } from "./identity";
 const MenuContext = createContext<{
   open: string | null;
   setOpen: (key: string | null) => void;
@@ -396,6 +397,8 @@ export function useDocument(store: DocumentStore) {
 export type DocumentEditorProps = {
   store: DocumentStore;
   presence?: PresenceOptions;
+  // Lets a visitor say which person they are; see createIdentity.
+  identity?: Identity;
   // Shown before a related record's name. People get their avatar unless this
   // returns something else; return null for nothing.
   renderPrefix?: (type: string, entity: Entity) => ReactNode;
@@ -407,6 +410,7 @@ export function DocumentEditor({
   renderPrefix: customPrefix,
   renderLabel,
   presence,
+  identity,
 }: DocumentEditorProps) {
   const state = useDocument(store),
     config = store.config;
@@ -427,7 +431,29 @@ export function DocumentEditor({
       );
     return stamps.current.get(key);
   };
-  const others = usePresence(root, presence);
+  // The first collection of people is who a visitor can be.
+  const people = Object.keys(config.collections).find(
+    (type) => config.collections[type].kind === "person",
+  );
+  const claimed = useSyncExternalStore(
+    identity?.subscribe ?? (() => () => {}),
+    () => identity?.get(),
+    () => undefined,
+  );
+  const everyone = (people && state.data[people]) || [];
+  const me = everyone.find((r) => r.id === claimed);
+  const others = usePresence(root, presence, {
+    me: me?.id,
+    face: (id) => {
+      const row = everyone.find((r) => r.id === id);
+      return (
+        row && {
+          name: String(row.short || row.name),
+          image: String(row.image ?? "") || undefined,
+        }
+      );
+    },
+  });
   useEffect(() => {
     const outside = (e: Event) => {
       const target = e.target;
@@ -670,6 +696,50 @@ export function DocumentEditor({
               ? `${others} ${others === 1 ? "other" : "others"} here`
               : ""}
           </span>
+          {identity && people && (
+            <Menu
+              id="me"
+              className="dv-me"
+              ariaLabel="Who you are"
+              label={
+                me ? (
+                  <>
+                    {renderPrefix(people, me)}
+                    {label(people, me)}
+                  </>
+                ) : (
+                  "Who are you?"
+                )
+              }
+            >
+              {everyone.map((r) => (
+                <button
+                  type="button"
+                  key={r.id}
+                  aria-pressed={r.id === me?.id}
+                  onClick={() => {
+                    identity.set(r.id);
+                    setOpen(null);
+                  }}
+                >
+                  {renderPrefix(people, r)}
+                  {String(r.name)}
+                  {r.id === me?.id ? " ✓" : ""}
+                </button>
+              ))}
+              {me && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    identity.set(undefined);
+                    setOpen(null);
+                  }}
+                >
+                  Not me
+                </button>
+              )}
+            </Menu>
+          )}
           <nav aria-label="Group document">
             {config.views.map((v, i) => (
               <button

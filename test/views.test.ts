@@ -12,6 +12,7 @@ import {
 } from "../src/model";
 import { c, type Infer } from "../src/builder";
 import { createMemoryDocument } from "../src/memory";
+import { createIdentity } from "../src/identity";
 import { DocumentEditor } from "../src/react";
 const config = defineDocument({
   title: "Shelf",
@@ -262,6 +263,17 @@ test("people show an avatar: their picture, or initials", () => {
     revision: 0,
   });
   const html = renderToString(React.createElement(DocumentEditor, { store }));
+  assert.doesNotMatch(html, /Who are you/);
+  const identity = createIdentity("team");
+  assert.match(
+    renderToString(React.createElement(DocumentEditor, { store, identity })),
+    /Who are you\?/,
+  );
+  let told = 0;
+  identity.subscribe(() => told++);
+  identity.set("a");
+  assert.equal(identity.get(), "a");
+  assert.equal(told, 1);
   assert.match(html, /dv-avatar[^>]*>Ad</);
   assert.match(html, /src="\/grace.png"/);
   assert.match(html, />Ada</);

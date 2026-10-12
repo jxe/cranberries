@@ -83,6 +83,12 @@ in. People are drawn with an avatar (their image, or initials) and named by
 their short name where space is tight. `renderPrefix(type, entity)` and
 `renderLabel(type, entity)` replace either for app-specific rendering.
 
+With `identity={createIdentity(documentId)}` on the editor (`mountDocument`
+does this), a visitor can pick which person they are. It is remembered in the
+browser and is a claim, not a login. Their writes are logged under that person
+(pass `actor: identity.get` to `createSupabaseDocument`), and other visitors see
+their face on the field they are in.
+
 A view groups by a field of the main collection, by another collection's
 relationship to it (rows keep that relationship's order), or not at all.
 `sort: "modified"` puts the most recently changed first: rows in a flat or

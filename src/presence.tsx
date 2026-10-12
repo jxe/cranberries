@@ -1,6 +1,11 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 export type PresenceOptions = { client: SupabaseClient; documentId: string };
+// The person this visitor says they are, and how to draw another visitor's.
+export type PresenceFaces = {
+  me?: string;
+  face: (person: string) => { name: string; image?: string } | undefined;
+};
 export const fieldKey = (type: string, id: string, field: string) =>
   JSON.stringify([type, id, field]);
 const colors = [
@@ -14,8 +19,11 @@ const colors = [
 export function usePresence(
   root: RefObject<HTMLElement | null>,
   options?: PresenceOptions,
+  faces?: PresenceFaces,
 ) {
   const [count, setCount] = useState(0);
+  const face = useRef(faces?.face);
+  face.current = faces?.face;
   useEffect(() => {
     if (!options || !root.current) return;
     const el = root.current;
@@ -35,7 +43,12 @@ export function usePresence(
     let connected = false,
       stopped = false,
       focused: string | null = null;
-    let peers: { visitor: string; field: string | null; color: string }[] = [];
+    let peers: {
+      visitor: string;
+      field: string | null;
+      color: string;
+      person?: string;
+    }[] = [];
     const channel = options.client.channel(`presence:${options.documentId}`, {
       config: { presence: { key: session } },
     });
@@ -48,10 +61,38 @@ export function usePresence(
           if (matches.length) {
             node.dataset.presence = "true";
             node.style.setProperty("--dv-peer-color", matches[0].color);
-            node.title = `${new Set(matches.map((p) => p.visitor)).size} other visitor(s) focused here`;
+            // A visitor who has said who they are is shown by face and name.
+            const known = matches.flatMap((p) => {
+              const who = p.person ? face.current?.(p.person) : undefined;
+              return who ? [who] : [];
+            });
+            const anonymous =
+              new Set(matches.map((p) => p.visitor)).size - known.length;
+            node.title = [
+              ...new Set(known.map((who) => who.name)),
+              ...(anonymous > 0 ? [`${anonymous} other visitor(s)`] : []),
+            ]
+              .join(", ")
+              .concat(" here");
+            if (known[0]) {
+              node.dataset.presenceWho = known[0].name.slice(0, 2);
+              if (known[0].image) {
+                node.dataset.presenceFace = "true";
+                node.style.setProperty(
+                  "--dv-peer-image",
+                  `url("${encodeURI(known[0].image).replace(/"/g, "%22")}")`,
+                );
+              } else {
+                delete node.dataset.presenceFace;
+                node.style.removeProperty("--dv-peer-image");
+              }
+            } else delete node.dataset.presenceWho;
           } else {
             delete node.dataset.presence;
+            delete node.dataset.presenceWho;
+            delete node.dataset.presenceFace;
             node.style.removeProperty("--dv-peer-color");
+            node.style.removeProperty("--dv-peer-image");
             node.removeAttribute("title");
           }
         },
@@ -62,7 +103,7 @@ export function usePresence(
       clearTimeout(retry);
       if (connected && !stopped) {
         void channel
-          .track({ visitor, color, field: focused })
+          .track({ visitor, color, field: focused, person: faces?.me ?? null })
           .then((result) => {
             if (result !== "ok" && !stopped) retry = setTimeout(publish, 3000);
           })
@@ -147,6 +188,6 @@ export function usePresence(
       paint();
       void options.client.removeChannel(channel);
     };
-  }, [root, options?.client, options?.documentId]);
+  }, [root, options?.client, options?.documentId, faces?.me]);
   return count;
 }
