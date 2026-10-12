@@ -89,6 +89,12 @@ browser and is a claim, not a login. Their writes are logged under that person
 (pass `actor: identity.get` to `createSupabaseDocument`), and other visitors see
 their face on the field they are in.
 
+`.ownedBy("authors")` on a collection names a relationship to people who own
+each record. A record with owners can be changed or removed only by a visitor
+who has picked one of them; a record with none, by anyone, which is how it
+gains an owner. Without it, anyone can change anything. Like identity, this is
+kept by the page, not enforced by the database.
+
 A view groups by a field of the main collection, by another collection's
 relationship to it (rows keep that relationship's order), or not at all.
 `sort: "modified"` puts the most recently changed first: rows in a flat or

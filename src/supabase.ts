@@ -147,7 +147,7 @@ export function createSupabaseDocument(options: {
   schema?: string;
   actor?: () => string | undefined;
 }) {
-  return new DocumentStore(
+  const store = new DocumentStore(
     options.config,
     options.initial,
     supabaseTransport(
@@ -174,6 +174,8 @@ export function createSupabaseDocument(options: {
             ),
         },
   );
+  if (options.actor) store.me = options.actor;
+  return store;
 }
 // Trusted setup only: call with a secret-key client from a seed script, never a browser.
 // An existing document is left untouched. Records go to the triple store unless

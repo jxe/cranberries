@@ -81,6 +81,13 @@ export class BuiltCollection<K extends string, F extends Fields> {
       fixed: true,
     });
   }
+  // Only the people in this relationship may change a record that has any.
+  ownedBy(field: keyof F & string) {
+    return new BuiltCollection(this.key, this.fields, {
+      ...this.options,
+      owners: field,
+    });
+  }
   toJSON(): Collection {
     return {
       ...this.options,

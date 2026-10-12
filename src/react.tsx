@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  canEdit,
   fieldsOf,
   groups,
   labelOf,
@@ -33,7 +34,9 @@ function Menu({
   className = "",
   ariaLabel,
   presenceKey,
+  disabled = false,
 }: {
+  disabled?: boolean;
   id: string;
   label: ReactNode;
   children: ReactNode;
@@ -53,6 +56,7 @@ function Menu({
         className="dv-trigger"
         aria-label={ariaLabel}
         aria-expanded={open === id}
+        disabled={disabled}
         onClick={() => setOpen(open === id ? null : id)}
       >
         {label}
@@ -97,7 +101,10 @@ export function EditableText({
   presenceKey,
   multiline = false,
   placeholder,
+  readOnly = false,
 }: {
+  // Shown as it is at rest, and cannot be edited.
+  readOnly?: boolean;
   value: string;
   onChange: (value: string, before: string) => void;
   onEmpty?: () => void;
@@ -133,7 +140,7 @@ export function EditableText({
   const onLink = (e: { target: EventTarget }) =>
     e.target instanceof Element && Boolean(e.target.closest("a"));
   const activate = (el: HTMLSpanElement) => {
-    if (el.contentEditable === "false") {
+    if (el.contentEditable === "false" && !readOnly) {
       previous.current = shown.current ?? value;
       if (multiline) el.textContent = previous.current;
       el.contentEditable = multiline ? "plaintext-only" : "true";
@@ -152,10 +159,11 @@ export function EditableText({
     <span
       ref={ref}
       className={multiline ? "dv-text dv-multiline" : "dv-text"}
-      data-placeholder={placeholder}
+      data-placeholder={readOnly ? undefined : placeholder}
       data-presence-field={presenceKey}
-      tabIndex={0}
+      tabIndex={readOnly ? undefined : 0}
       role="textbox"
+      aria-readonly={readOnly || undefined}
       aria-label={label}
       contentEditable={false}
       suppressContentEditableWarning
@@ -532,11 +540,14 @@ export function DocumentEditor({
   );
   const noun = (type: string) => labelOf(config, type);
   const fixed = (type: string) => config.collections[type].fixed ?? false;
+  // A record with owners can be changed only by one of them.
+  const can = (type: string, row: Entity) => canEdit(config, type, row, me?.id);
   const text = (type: string, row: Entity, field = "name") =>
     fixed(type) ? (
       <span>{String(row[field])}</span>
     ) : (
       <EditableText
+        readOnly={!can(type, row)}
         presenceKey={fieldKey(type, row.id, field)}
         value={String(row[field])}
         label={`${noun(type)} ${field}`}
@@ -587,6 +598,7 @@ export function DocumentEditor({
           presenceKey={fieldKey(config.main, row.id, name)}
           id={`${occurrence}:${name}`}
           ariaLabel={`${name} for ${row.name}`}
+          disabled={!can(config.main, row)}
           className={d.bullet ? "dv-bullet" : ""}
           label={
             d.bullet ? (
@@ -626,6 +638,7 @@ export function DocumentEditor({
         presenceKey={fieldKey(config.main, row.id, name)}
         id={`${occurrence}:${name}`}
         ariaLabel={`${name} for ${row.name}`}
+        disabled={!can(config.main, row)}
         className={d.summary ? "dv-count" : ""}
         label={
           d.summary
@@ -879,6 +892,7 @@ export function DocumentEditor({
                           <Note key={name}>
                             <EditableText
                               multiline
+                              readOnly={!can(config.main, row)}
                               placeholder={`Add ${name}`}
                               presenceKey={fieldKey(config.main, row.id, name)}
                               value={String(row[name])}
@@ -903,6 +917,11 @@ export function DocumentEditor({
                                 <input
                                   type="checkbox"
                                   checked={memberOf(row, related)}
+                                  disabled={
+                                    reverse
+                                      ? !can(reverse.collection, related)
+                                      : !can(config.main, row)
+                                  }
                                   onChange={(e) =>
                                     setMember(row, related, e.target.checked)
                                   }
@@ -913,6 +932,7 @@ export function DocumentEditor({
                           </>
                         )}
                         <button
+                          hidden={!can(config.main, row)}
                           onClick={() => {
                             store.remove(config.main, row.id);
                             setOpen(null);

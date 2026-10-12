@@ -20,6 +20,9 @@ export type Collection = {
   kind?: "person";
   label?: string;
   fixed?: boolean;
+  // A relationship to people who own each record. A record with owners can be
+  // changed only by one of them; a record with none, by anyone.
+  owners?: string;
   fields: Record<string, Field>;
 };
 export type Config = {
@@ -126,6 +129,16 @@ export function defineDocument(input: ConfigInput): Config {
     throw Error("A main collection, line, and views are required.");
   for (const collection of Object.values(config.collections)) {
     const own = collection.fields;
+    const owners = collection.owners && own[collection.owners];
+    if (
+      collection.owners &&
+      !(
+        owners &&
+        owners.type === "many" &&
+        config.collections[owners.of]?.kind === "person"
+      )
+    )
+      throw Error("Owners must be a relationship to people.");
     if (own.name?.type !== "text" || "id" in own || "modified" in own)
       throw Error(
         "Each collection needs a text name; id and modified are reserved.",
@@ -266,6 +279,17 @@ export function search(
         : { ...g, rows: g.rows.filter((r) => has(haystack(r))) },
     )
     .filter((g) => g.rows.length);
+}
+// Whether the visitor who says they are `me` may change this record.
+export function canEdit(
+  config: Config,
+  type: string,
+  row: Entity | undefined,
+  me?: string,
+) {
+  const field = config.collections[type]?.owners;
+  const owners = (field && (row?.[field] as string[])) || [];
+  return !owners.length || (me !== undefined && owners.includes(me));
 }
 export function newEntity(config: Config, type: string, id: string): Entity {
   return Object.fromEntries([

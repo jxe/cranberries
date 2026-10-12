@@ -8,6 +8,7 @@ export {
   limits,
   fieldsOf,
   labelOf,
+  canEdit,
 } from "./model";
 export { c } from "./builder";
 export type { Infer } from "./builder";

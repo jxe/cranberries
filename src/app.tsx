@@ -36,8 +36,8 @@ export function DocumentApp({
       : null,
   );
   const [identity] = useState(() => createIdentity(documentId));
-  const [store] = useState(() =>
-    client
+  const [store] = useState(() => {
+    const store = client
       ? createSupabaseDocument({
           client,
           documentId,
@@ -46,8 +46,10 @@ export function DocumentApp({
           schema,
           actor: identity.get,
         })
-      : createMemoryDocument(config, initial),
-  );
+      : createMemoryDocument(config, initial);
+    store.me = identity.get;
+    return store;
+  });
   return (
     <>
       {!client && (

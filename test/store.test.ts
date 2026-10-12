@@ -8,6 +8,7 @@ import {
   type Snapshot,
   type Operation,
 } from "../src/model";
+import { defineDocument } from "../src/model";
 import { config, data } from "./fixtures";
 const tick = () => new Promise((r) => setTimeout(r, 5));
 function server() {
@@ -363,4 +364,61 @@ test("two people adding different members to one relationship both succeed", asy
   assert.equal(b.getSnapshot().status, "saved");
   a.start()();
   b.start()();
+});
+
+test("a record with owners is changed only by one of them; an unowned one by anyone", async () => {
+  const s = server();
+  const owned = defineDocument({
+    ...config,
+    collections: {
+      person: { kind: "person" },
+      task: { ...config.collections.task, owners: "leads" },
+    },
+  });
+  await s.transport.commit(crypto.randomUUID(), [
+    { kind: "create", type: "person", id: "q", value: { id: "q", name: "Q" } },
+    {
+      kind: "create",
+      type: "task",
+      id: "free",
+      value: { id: "free", name: "Free", leads: [], status: "Open" },
+    },
+  ]);
+  // The fixture's people predate the built-in person fields.
+  const initial = {
+    ...s.get(),
+    data: {
+      ...s.get().data,
+      person: s.get().data.person.map((p) => ({ ...p, short: "", image: "" })),
+    },
+  };
+  const a = new DocumentStore(owned, initial, s.transport);
+  let me: string | undefined;
+  a.me = () => me;
+  a.set("task", "t", "name", "Taken");
+  a.link("task", "t", "leads", "q");
+  a.remove("task", "t");
+  assert.equal(a.getSnapshot().pending, 0);
+  a.link("task", "free", "leads", "q");
+  a.set("task", "free", "name", "Still free");
+  assert.equal(a.getSnapshot().data.task[1].name, "Free");
+  me = "q";
+  a.set("task", "free", "name", "Mine");
+  me = "p";
+  a.set("task", "t", "name", "Renamed");
+  a.link("task", "t", "leads", "q");
+  await a.flush();
+  assert.equal(s.get().data.task[0].name, "Renamed");
+  assert.deepEqual(s.get().data.task[0].leads, ["p", "q"]);
+  assert.equal(s.get().data.task[1].name, "Mine");
+  assert.throws(() =>
+    defineDocument({
+      ...config,
+      collections: {
+        ...config.collections,
+        task: { ...config.collections.task, owners: "status" },
+      },
+    }),
+  );
+  a.start()();
 });

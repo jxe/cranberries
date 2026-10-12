@@ -1,5 +1,6 @@
 import {
   apply,
+  canEdit,
   equal,
   validate,
   type Change,
@@ -53,6 +54,16 @@ export class DocumentStore {
   private blocked = false;
   private state: State;
   private storageError = "";
+  // The person this visitor says they are; decides which owned records they may change.
+  me: () => string | undefined = () => undefined;
+  private may(type: string, id: string) {
+    return canEdit(
+      this.config,
+      type,
+      this.state.data[type]?.find((r) => r.id === id),
+      this.me(),
+    );
+  }
   constructor(
     readonly config: Config,
     initial: Snapshot,
@@ -243,7 +254,7 @@ export class DocumentStore {
   }
   set(type: string, id: string, field: string, value: Value, expected?: Value) {
     const row = this.state.data[type]?.find((r) => r.id === id);
-    if (!row || equal(row[field], value)) return;
+    if (!row || equal(row[field], value) || !this.may(type, id)) return;
     const op: Operation = {
       kind: "set",
       type,
@@ -263,7 +274,12 @@ export class DocumentStore {
   // Add or remove one member of a relationship.
   link(type: string, id: string, field: string, member: string, on = true) {
     const row = this.state.data[type]?.find((r) => r.id === id);
-    if (!row || (row[field] as string[]).includes(member) === on) return;
+    if (
+      !row ||
+      (row[field] as string[]).includes(member) === on ||
+      !this.may(type, id)
+    )
+      return;
     const op: Operation = {
       kind: on ? "link" : "unlink",
       type,
@@ -276,7 +292,8 @@ export class DocumentStore {
   }
   remove(type: string, id: string) {
     const before = this.state.data[type]?.find((r) => r.id === id);
-    if (before) this.enqueue({ kind: "delete", type, id, before });
+    if (before && this.may(type, id))
+      this.enqueue({ kind: "delete", type, id, before });
   }
   async flush() {
     if (this.busy || this.blocked || !this.queue.length) return;
