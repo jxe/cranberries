@@ -209,6 +209,47 @@ export function EditableText({
     </span>
   );
 }
+// Long text under a line. Past five lines it is cut short with a control to
+// show the rest; editing it opens it.
+function Note({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false),
+    [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current,
+      text = el?.firstElementChild;
+    if (!el || !(text instanceof HTMLElement)) return;
+    const measure = () =>
+      setLong(
+        text.offsetHeight > parseFloat(getComputedStyle(el).lineHeight) * 5 + 1,
+      );
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(text);
+    return () => watch.disconnect();
+  }, []);
+  return (
+    <div className="dv-note">
+      <div
+        ref={ref}
+        className={long && !open ? "dv-clamp" : undefined}
+        onFocus={() => setOpen(true)}
+      >
+        {children}
+      </div>
+      {long && (
+        <button
+          type="button"
+          className="dv-more"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 // A line that does not exist yet. Typing searches the candidates; Enter adds the
 // highlighted one, or creates a new entity with the typed name.
 function DraftLine({
@@ -747,7 +788,7 @@ export function DocumentEditor({
                       {config.line
                         .filter((name) => main[name] === "longtext")
                         .map((name) => (
-                          <div className="dv-note" key={name}>
+                          <Note key={name}>
                             <EditableText
                               multiline
                               placeholder={`Add ${name}`}
@@ -762,7 +803,7 @@ export function DocumentEditor({
                                 store.set(config.collection, row.id, name, v, b)
                               }
                             />
-                          </div>
+                          </Note>
                         ))}
                       <Menu
                         id={`${occurrence}:actions`}

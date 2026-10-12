@@ -1,11 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { validate, type Config, type Data, type Snapshot } from "./model";
 import { DocumentStore, type Transport } from "./store";
+// The tables live in `public` unless the migrations were installed into
+// another schema (`npm run sql -- <schema>`), which is then passed as `schema`.
+const within = (client: SupabaseClient, schema?: string) =>
+  schema ? (client.schema(schema) as unknown as SupabaseClient) : client;
 export async function readDocument(
   client: SupabaseClient,
   documentId: string,
+  schema?: string,
 ): Promise<Snapshot> {
-  const { data, error } = await client
+  const { data, error } = await within(client, schema)
     .from("dv_documents")
     .select("data,revision")
     .eq("id", documentId)
@@ -18,9 +23,10 @@ export async function readDocument(
 export async function loadDocument(
   client: SupabaseClient,
   documentId: string,
+  schema?: string,
 ): Promise<Snapshot> {
   try {
-    return await readDocument(client, documentId);
+    return await readDocument(client, documentId, schema);
   } catch (error) {
     try {
       const saved = sessionStorage.getItem(
@@ -40,11 +46,12 @@ export async function loadDocument(
 export function supabaseTransport(
   client: SupabaseClient,
   documentId: string,
+  schema?: string,
 ): Transport {
   return {
-    read: () => readDocument(client, documentId),
+    read: () => readDocument(client, documentId, schema),
     async commit(requestId, operations) {
-      const { data, error } = await client
+      const { data, error } = await within(client, schema)
         .rpc("dv_apply", {
           document_id: documentId,
           request_id: requestId,
@@ -62,7 +69,7 @@ export function supabaseTransport(
         refreshing = true;
         try {
           if (!client.realtime.isConnected()) client.realtime.connect();
-          const snapshot = await readDocument(client, documentId);
+          const snapshot = await readDocument(client, documentId, schema);
           if (alive) receive(snapshot);
         } catch {
           /* Writes have their own retry and error reporting. */
@@ -101,7 +108,7 @@ export function supabaseTransport(
           "postgres_changes",
           {
             event: "UPDATE",
-            schema: "public",
+            schema: schema ?? "public",
             table: "dv_documents",
             filter: `id=eq.${documentId}`,
           },
@@ -131,11 +138,12 @@ export function createSupabaseDocument(options: {
   documentId: string;
   config: Config;
   initial: Snapshot;
+  schema?: string;
 }) {
   return new DocumentStore(
     options.config,
     options.initial,
-    supabaseTransport(options.client, options.documentId),
+    supabaseTransport(options.client, options.documentId, options.schema),
     typeof window === "undefined"
       ? undefined
       : {
@@ -165,19 +173,22 @@ export async function provisionDocument(
     data: Data;
     publicRead?: boolean;
     publicWrite?: boolean;
+    schema?: string;
   },
 ) {
   validate(options.config, options.data);
-  const { error } = await client.from("dv_documents").upsert(
-    {
-      id: options.documentId,
-      config: options.config,
-      data: options.data,
-      revision: 0,
-      public_read: options.publicRead ?? false,
-      public_write: options.publicWrite ?? false,
-    },
-    { onConflict: "id", ignoreDuplicates: true },
-  );
+  const { error } = await within(client, options.schema)
+    .from("dv_documents")
+    .upsert(
+      {
+        id: options.documentId,
+        config: options.config,
+        data: options.data,
+        revision: 0,
+        public_read: options.publicRead ?? false,
+        public_write: options.publicWrite ?? false,
+      },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
   if (error) throw error;
 }

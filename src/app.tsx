@@ -14,6 +14,8 @@ export type DocumentAppOptions = {
   demoData: Data;
   url?: string;
   publishableKey?: string;
+  // Where the migrations were installed, when not `public`.
+  schema?: string;
 } & Pick<DocumentEditorProps, "renderPrefix" | "renderLabel">;
 export function DocumentApp({
   initial,
@@ -21,6 +23,7 @@ export function DocumentApp({
   config,
   url,
   publishableKey,
+  schema,
   renderPrefix,
   renderLabel,
 }: DocumentAppOptions & { initial: Snapshot }) {
@@ -33,7 +36,7 @@ export function DocumentApp({
   );
   const [store] = useState(() =>
     client
-      ? createSupabaseDocument({ client, documentId, config, initial })
+      ? createSupabaseDocument({ client, documentId, config, initial, schema })
       : createMemoryDocument(config, initial),
   );
   return (
@@ -74,6 +77,7 @@ export async function mountDocument(
         ? await loadDocument(
             createClient(app.url, app.publishableKey),
             app.documentId,
+            app.schema,
           )
         : { data: app.demoData, revision: 0 };
     root.render(wrap(<DocumentApp {...app} initial={initial} />));

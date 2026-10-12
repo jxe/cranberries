@@ -8,6 +8,7 @@ export async function seedFromEnv(options: {
   data: Data;
   publicRead?: boolean;
   publicWrite?: boolean;
+  schema?: string;
 }) {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL,
     key =

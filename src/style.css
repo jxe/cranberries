@@ -269,7 +269,7 @@
 }
 /* Lines with fields below them need air between items. */
 .dv-blocks li {
-  margin-bottom: 12px;
+  margin-bottom: var(--dv-line);
 }
 .dv-blocks .dv-note {
   margin: 0;
@@ -341,4 +341,17 @@
 .dv-search::placeholder,
 .dv-empty {
   color: #bbb;
+}
+.dv-clamp {
+  max-height: 5lh;
+  overflow: hidden;
+}
+.dv-more {
+  display: block;
+  color: #aaa !important;
+  font-size: 14px;
+  line-height: 24px;
+}
+.dv-more:hover {
+  color: #777 !important;
 }

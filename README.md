@@ -68,6 +68,13 @@ relationship view. The order is fixed when a record is first shown, so a line
 does not move while it is edited. Run `sql/003_modified.sql` after 002 for
 stamps and for long text up to 100,000 characters.
 
+A long text field past five lines is cut short with a "Show more" control.
+
+To keep the library's tables apart from an existing application's, install the
+migrations into a schema of their own: `npm run sql -- myschema | psql ...`, add
+that schema to the project's exposed schemas, and pass `schema: "myschema"` to
+`createSupabaseDocument`, `readDocument`, `mountDocument` and the seed helpers.
+
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
 `provisionDocument(secretClient, {...})` creates a document row from a seed script.
 
