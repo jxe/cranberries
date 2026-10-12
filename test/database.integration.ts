@@ -411,6 +411,7 @@ both(
       set("name", "Wrong", "Changed"),
     ]);
     assert.ok(b.conflict);
+    assert.equal(b.snapshot.title, "Renamed");
     assert.equal((await read(id)).title, "Renamed");
     await assert.rejects(
       () => commit(id, [title("Renamed", " ")]),

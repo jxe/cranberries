@@ -89,6 +89,10 @@ browser and is a claim, not a login. Their writes are logged under that person
 (pass `actor: identity.get` to `createSupabaseDocument`), and other visitors see
 their face on the field they are in.
 
+The config's `title` is where a document's title starts; it is then saved with
+the document and anyone who may write can change it in the page. Run
+`sql/005_title.sql` for that.
+
 `.ownedBy("authors")` on a collection names a relationship to people who own
 each record. A record with owners can be changed or removed only by a visitor
 who has picked one of them; a record with none, by anyone, which is how it
