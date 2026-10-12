@@ -1,0 +1,766 @@
+import {
+  Fragment,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { groups, newEntity, type Entity, type Field } from "./model";
+import { DocumentStore } from "./store";
+import { fieldKey, usePresence, type PresenceOptions } from "./presence";
+const MenuContext = createContext<{
+  open: string | null;
+  setOpen: (key: string | null) => void;
+}>({ open: null, setOpen: () => {} });
+function Menu({
+  id,
+  label,
+  children,
+  className = "",
+  ariaLabel,
+  presenceKey,
+}: {
+  id: string;
+  label: ReactNode;
+  children: ReactNode;
+  className?: string;
+  ariaLabel: string;
+  presenceKey?: string;
+}) {
+  const { open, setOpen } = useContext(MenuContext);
+  return (
+    <span
+      className={`dv-picker ${className}`}
+      data-menu={id}
+      data-presence-field={presenceKey}
+    >
+      <button
+        type="button"
+        className="dv-trigger"
+        aria-label={ariaLabel}
+        aria-expanded={open === id}
+        onClick={() => setOpen(open === id ? null : id)}
+      >
+        {label}
+      </button>
+      {open === id && (
+        <span className="dv-menu" role="group" aria-label={ariaLabel}>
+          {children}
+        </span>
+      )}
+    </span>
+  );
+}
+export function EditableText({
+  value,
+  onChange,
+  onEmpty,
+  label,
+  presenceKey,
+  multiline = false,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string, before: string) => void;
+  onEmpty?: () => void;
+  label: string;
+  presenceKey?: string;
+  // Multiline text keeps line breaks and may be cleared.
+  multiline?: boolean;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null),
+    initial = useRef(value),
+    previous = useRef(value),
+    latest = useRef(value),
+    composing = useRef(false);
+  latest.current = value;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && el !== document.activeElement && el.textContent !== value)
+      el.textContent = value;
+  }, [value]);
+  // Browsers keep a trailing line break in an editable block; it is not content.
+  const read = (el: HTMLSpanElement) => {
+    const text = el.textContent ?? "";
+    return multiline ? (text.trim() ? text.replace(/\n$/, "") : "") : text;
+  };
+  const activate = (el: HTMLSpanElement) => {
+    if (el.contentEditable === "false") {
+      previous.current = el.textContent ?? value;
+      el.contentEditable = multiline ? "plaintext-only" : "true";
+    }
+  };
+  const changed = (el: HTMLSpanElement) => {
+    if (composing.current) return;
+    const text = read(el);
+    if (multiline && !text && el.firstChild) el.textContent = "";
+    if (text.trim() || multiline) {
+      onChange(text, previous.current);
+      previous.current = text;
+    }
+  };
+  return (
+    <span
+      ref={ref}
+      className={multiline ? "dv-text dv-multiline" : "dv-text"}
+      data-placeholder={placeholder}
+      data-presence-field={presenceKey}
+      tabIndex={0}
+      role="textbox"
+      aria-label={label}
+      contentEditable={false}
+      suppressContentEditableWarning
+      onClick={(e) => {
+        activate(e.currentTarget);
+        e.currentTarget.focus();
+      }}
+      onPointerDown={(e) => {
+        if (e.button === 0) activate(e.currentTarget);
+      }}
+      onFocus={(e) => {
+        const el = e.currentTarget;
+        activate(el);
+        // Focus from the keyboard or a menu has no caret yet; a click places its own.
+        const s = window.getSelection();
+        if (s && !(s.anchorNode && el.contains(s.anchorNode))) {
+          s.selectAllChildren(el);
+          s.collapseToEnd();
+        }
+      }}
+      onInput={(e) => changed(e.currentTarget)}
+      onCompositionStart={() => {
+        composing.current = true;
+      }}
+      onCompositionEnd={(e) => {
+        composing.current = false;
+        changed(e.currentTarget);
+      }}
+      onBlur={(e) => {
+        const el = e.currentTarget;
+        el.contentEditable = "false";
+        if (!el.textContent?.trim() && onEmpty) onEmpty();
+        else el.textContent = latest.current;
+        const s = window.getSelection();
+        if (s?.anchorNode && el.contains(s.anchorNode)) s.removeAllRanges();
+      }}
+      onKeyDown={(e) => {
+        if (
+          ((e.key === "Enter" && !multiline) || e.key === "Escape") &&
+          !e.nativeEvent.isComposing
+        ) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      onPaste={(e) => {
+        e.preventDefault();
+        document.execCommand(
+          "insertText",
+          false,
+          multiline
+            ? e.clipboardData.getData("text/plain")
+            : e.clipboardData.getData("text/plain").replace(/\n/g, " "),
+        );
+      }}
+    >
+      {initial.current}
+    </span>
+  );
+}
+// A line that does not exist yet. Typing searches the candidates; Enter adds the
+// highlighted one, or creates a new entity with the typed name.
+function DraftLine({
+  noun,
+  candidates,
+  onCreate,
+  onPick,
+  onClose,
+}: {
+  noun: string;
+  candidates: Entity[];
+  onCreate: (name: string) => void;
+  onPick: (row: Entity) => void;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(""),
+    [active, setActive] = useState(-1);
+  const query = text.trim().toLowerCase();
+  const matches = query
+    ? candidates
+        .filter((r) => String(r.name).toLowerCase().includes(query))
+        .slice(0, 8)
+    : [];
+  const done = () => {
+    setText("");
+    setActive(-1);
+  };
+  return (
+    <li className="dv-draft">
+      <input
+        autoFocus
+        value={text}
+        placeholder={
+          candidates.length ? `New ${noun}, or search by name` : `New ${noun}`
+        }
+        aria-label={`Add ${noun}`}
+        onChange={(e) => {
+          setText(e.target.value);
+          setActive(-1);
+        }}
+        onBlur={() => {
+          if (!text.trim()) onClose();
+        }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Escape") onClose();
+          else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            const n = matches.length + 1,
+              step = e.key === "ArrowDown" ? 1 : n - 1;
+            setActive(((active + 1 + step) % n) - 1);
+          } else if (e.key === "Enter" && query) {
+            if (matches[active]) onPick(matches[active]);
+            else onCreate(text.trim());
+            done();
+          }
+        }}
+      />
+      {query && candidates.length > 0 && (
+        <span
+          className="dv-menu"
+          role="listbox"
+          aria-label={`Matching ${noun}s`}
+        >
+          {matches.map((r, i) => (
+            <button
+              type="button"
+              role="option"
+              key={r.id}
+              aria-selected={i === active}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onPick(r);
+                done();
+              }}
+            >
+              {String(r.name)}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="option"
+            aria-selected={active === -1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onCreate(text.trim());
+              done();
+            }}
+          >
+            New {noun} “{text.trim()}”
+          </button>
+        </span>
+      )}
+    </li>
+  );
+}
+export function useDocument(store: DocumentStore) {
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  useEffect(() => store.start(), [store]);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (store.getSnapshot().pending) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [store]);
+  return state;
+}
+export type DocumentEditorProps = {
+  store: DocumentStore;
+  presence?: PresenceOptions;
+  renderPrefix?: (type: string, entity: Entity) => ReactNode;
+  renderLabel?: (type: string, entity: Entity) => ReactNode;
+};
+export function DocumentEditor({
+  store,
+  renderPrefix,
+  renderLabel,
+  presence,
+}: DocumentEditorProps) {
+  const state = useDocument(store),
+    config = store.config;
+  const [viewIndex, setView] = useState(0),
+    [open, setOpen] = useState<string | null>(null),
+    [draft, setDraft] = useState<string | null>(null);
+  const root = useRef<HTMLElement>(null);
+  const others = usePresence(root, presence);
+  useEffect(() => {
+    const outside = (e: Event) => {
+      const target = e.target;
+      const focused = document.activeElement;
+      if (
+        e.type === "pointerdown" &&
+        focused instanceof HTMLElement &&
+        focused.isContentEditable &&
+        target instanceof Node &&
+        !focused.contains(target)
+      )
+        focused.blur();
+      if (
+        !(target instanceof Element) ||
+        !root.current?.contains(target) ||
+        !target.closest("[data-menu]")
+      )
+        setOpen(null);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (open) {
+        e.preventDefault();
+        const trigger = root.current?.querySelector<HTMLButtonElement>(
+          '[aria-expanded="true"]',
+        );
+        setOpen(null);
+        trigger?.focus();
+      } else if (
+        document.activeElement instanceof HTMLElement &&
+        root.current?.contains(document.activeElement)
+      ) {
+        document.activeElement.blur();
+      }
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", outside, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", outside, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [open]);
+  const view = config.views[viewIndex],
+    main = config.schema[config.collection];
+  // A view groups by a field of the collection, by another collection's
+  // relationship to it (reverse), or not at all.
+  const reverse = typeof view.groupBy === "object" ? view.groupBy : null,
+    groupField = typeof view.groupBy === "string" ? view.groupBy : null,
+    descriptor = groupField ? main[groupField] : undefined;
+  const groupType = reverse
+    ? reverse.collection
+    : typeof descriptor === "object" && "many" in descriptor
+      ? descriptor.many
+      : null;
+  const arranged = groups(config, state.data, view.groupBy);
+  const noun = (type: string) => config.labels?.[type] ?? type;
+  const fixed = (type: string) => config.fixed?.includes(type) ?? false;
+  const text = (type: string, row: Entity, field = "name") =>
+    fixed(type) ? (
+      <span>{String(row[field])}</span>
+    ) : (
+      <EditableText
+        presenceKey={fieldKey(type, row.id, field)}
+        value={String(row[field])}
+        label={`${noun(type)} ${field}`}
+        onChange={(v, b) => store.set(type, row.id, field, v, b)}
+        onEmpty={
+          field === "name" ? () => store.remove(type, row.id) : undefined
+        }
+      />
+    );
+  const memberOf = (row: Entity, related: Entity) =>
+    reverse
+      ? (related[reverse.field] as string[]).includes(row.id)
+      : (row[groupField!] as string[]).includes(related.id);
+  function setMember(row: Entity, related: Entity, member: boolean) {
+    const [type, owner, field, id] = reverse
+      ? [reverse.collection, related, reverse.field, row.id]
+      : [config.collection, row, groupField!, related.id];
+    const current = owner[field] as string[];
+    store.set(
+      type,
+      owner.id,
+      field,
+      member ? [...current, id] : current.filter((other) => other !== id),
+    );
+  }
+  const label = (type: string, row: Entity) =>
+    renderLabel?.(type, row) ?? String(row.name);
+  function add(type: string, group?: string, name?: string) {
+    const row = newEntity(config, type, crypto.randomUUID());
+    if (name) row.name = name;
+    if (type === config.collection && group && groupField) {
+      row[groupField] =
+        typeof descriptor === "object" && "many" in descriptor
+          ? [group]
+          : group;
+    }
+    store.create(type, row);
+    const owner =
+      type === config.collection && group && reverse
+        ? state.data[reverse.collection].find((r) => r.id === group)
+        : undefined;
+    if (owner && reverse)
+      store.set(reverse.collection, owner.id, reverse.field, [
+        ...(owner[reverse.field] as string[]),
+        row.id,
+      ]);
+  }
+  function field(row: Entity, name: string, occurrence: string) {
+    const d = main[name],
+      value = row[name];
+    if (typeof d === "string") return text(config.collection, row, name);
+    if ("choices" in d)
+      return (
+        <Menu
+          presenceKey={fieldKey(config.collection, row.id, name)}
+          id={`${occurrence}:${name}`}
+          ariaLabel={`${name} for ${row.name}`}
+          className={d.bullet ? "dv-bullet" : ""}
+          label={
+            d.bullet ? (
+              <i
+                className="dv-dot"
+                style={{ background: d.colors?.[String(value)] ?? "#999" }}
+              />
+            ) : (
+              String(value)
+            )
+          }
+        >
+          {d.choices.map((choice) => (
+            <button
+              type="button"
+              key={choice}
+              aria-pressed={choice === value}
+              onClick={() => {
+                store.set(config.collection, row.id, name, choice);
+                setOpen(null);
+              }}
+            >
+              <i
+                className="dv-dot"
+                style={{ background: d.colors?.[choice] ?? "#999" }}
+              />
+              {choice}
+              {choice === value ? " ✓" : ""}
+            </button>
+          ))}
+        </Menu>
+      );
+    const members = state.data[d.many].filter((r) =>
+      (value as string[]).includes(r.id),
+    );
+    if (name === groupField && d.summary) return null;
+    return (
+      <Menu
+        presenceKey={fieldKey(config.collection, row.id, name)}
+        id={`${occurrence}:${name}`}
+        ariaLabel={`${name} for ${row.name}`}
+        className={d.summary ? "dv-count" : ""}
+        label={
+          d.summary
+            ? `${members.length} ${d.label ?? noun(d.many)}${members.length === 1 ? "" : "s"}`
+            : members.length
+              ? members.map((r) => (
+                  <span className="dv-person" key={r.id}>
+                    {renderPrefix?.(d.many, r)}
+                    {label(d.many, r)}
+                  </span>
+                ))
+              : `No ${d.label ?? noun(d.many)}`
+        }
+      >
+        {state.data[d.many].map((r) => (
+          <span className="dv-option" key={r.id}>
+            <input
+              type="checkbox"
+              aria-label={`Include ${r.name}`}
+              checked={(value as string[]).includes(r.id)}
+              onChange={(e) =>
+                store.set(
+                  config.collection,
+                  row.id,
+                  name,
+                  e.target.checked
+                    ? [...(value as string[]), r.id]
+                    : (value as string[]).filter((id) => id !== r.id),
+                )
+              }
+            />
+            {renderPrefix?.(d.many, r)}
+            {text(d.many, r)}
+          </span>
+        ))}
+      </Menu>
+    );
+  }
+  const groupControl =
+    groupType && !fixed(groupType) ? (
+      <button className="dv-add-group" onClick={() => add(groupType)}>
+        + Add a {noun(groupType)}
+      </button>
+    ) : null;
+  const statusText =
+    state.status === "saved" ? "All changes saved" : state.status;
+  return (
+    <MenuContext.Provider value={{ open, setOpen }}>
+      <main
+        className={
+          config.line.some((name) => main[name] === "longtext")
+            ? "dv-document dv-blocks"
+            : "dv-document"
+        }
+        ref={root}
+      >
+        <header>
+          <h1>{config.title}</h1>
+          <span
+            className="dv-save"
+            role="status"
+            title={state.error || statusText}
+            aria-label={state.error || statusText}
+          >
+            {state.status === "saved"
+              ? "✓"
+              : state.status === "saving"
+                ? "◌"
+                : state.status === "connecting"
+                  ? "◌"
+                  : "!"}
+          </span>
+          <span className="dv-presence-count" role="status">
+            {others > 0
+              ? `${others} ${others === 1 ? "other" : "others"} here`
+              : ""}
+          </span>
+          <nav aria-label="Group document">
+            {config.views.map((v, i) => (
+              <button
+                key={i}
+                aria-pressed={viewIndex === i}
+                onClick={() => {
+                  setOpen(null);
+                  setDraft(null);
+                  setView(i);
+                }}
+              >
+                {v.label}
+              </button>
+            ))}
+          </nav>
+        </header>
+        {!state.realtime && (
+          <div className="dv-connection" role="status">
+            Live updates reconnecting.{" "}
+            {state.pending
+              ? "Changes waiting to save."
+              : state.status === "saved"
+                ? "All changes saved."
+                : "Checking saved changes."}
+          </div>
+        )}
+        {state.storageError && (
+          <div className="dv-error" role="alert">
+            {state.storageError}
+          </div>
+        )}
+        {state.error && (
+          <div className="dv-error" role="alert">
+            {state.pending > 0 && state.status !== "conflict"
+              ? "Changes not yet saved. "
+              : ""}
+            {state.error}{" "}
+            {state.status === "conflict" ? (
+              <>
+                <button
+                  onClick={() => {
+                    const blob = new Blob(
+                      [JSON.stringify(store.exportDraft(), null, 2)],
+                      { type: "application/json" },
+                    );
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "document-draft.json";
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  }}
+                >
+                  Download my draft
+                </button>{" "}
+                <button onClick={store.useRemote}>Use shared version</button>
+              </>
+            ) : (
+              <button onClick={store.retry}>Retry</button>
+            )}
+          </div>
+        )}
+        {arranged.map((group) => (
+          <Fragment key={`${viewIndex}:${group.id}`}>
+            {!group.id && groupControl}
+            <section>
+              <h2 hidden={view.groupBy === undefined}>
+                {group.type
+                  ? (() => {
+                      const row = state.data[group.type].find(
+                        (r) => r.id === group.id,
+                      )!;
+                      return (
+                        <>
+                          {renderPrefix?.(group.type, row)}
+                          {text(group.type, row)}
+                        </>
+                      );
+                    })()
+                  : group.name}
+              </h2>
+              <ul>
+                {group.rows.map((row) => {
+                  const occurrence = `${viewIndex}:${group.id}:${row.id}`;
+                  const colored = Object.entries(main).find(
+                    ([, d]) =>
+                      typeof d === "object" && "choices" in d && d.bullet,
+                  );
+                  const color =
+                    colored &&
+                    typeof colored[1] === "object" &&
+                    "choices" in colored[1]
+                      ? colored[1].colors?.[String(row[colored[0]])]
+                      : undefined;
+                  return (
+                    <li key={row.id}>
+                      {colored && field(row, colored[0], occurrence)}
+                      {config.line
+                        .filter(
+                          (name) =>
+                            name !== colored?.[0] &&
+                            name !== groupField &&
+                            main[name] !== "longtext",
+                        )
+                        .map((name, i) => (
+                          <Fragment key={name}>
+                            {i === 1 &&
+                              !(
+                                typeof main[name] === "object" &&
+                                "many" in
+                                  (main[name] as Exclude<Field, string>) &&
+                                (
+                                  main[name] as {
+                                    summary?: boolean;
+                                  }
+                                ).summary
+                              ) && <span className="dv-separator"> — </span>}
+                            <span
+                              style={
+                                main[name] === "text" ? { color } : undefined
+                              }
+                            >
+                              {field(row, name, occurrence)}
+                            </span>
+                          </Fragment>
+                        ))}
+                      {config.line
+                        .filter((name) => main[name] === "longtext")
+                        .map((name) => (
+                          <div className="dv-note" key={name}>
+                            <EditableText
+                              multiline
+                              placeholder={`Add ${name}`}
+                              presenceKey={fieldKey(
+                                config.collection,
+                                row.id,
+                                name,
+                              )}
+                              value={String(row[name])}
+                              label={`${noun(config.collection)} ${name}`}
+                              onChange={(v, b) =>
+                                store.set(config.collection, row.id, name, v, b)
+                              }
+                            />
+                          </div>
+                        ))}
+                      <Menu
+                        id={`${occurrence}:actions`}
+                        className="dv-actions"
+                        ariaLabel={`Options for ${row.name}`}
+                        label="···"
+                      >
+                        {groupType && (
+                          <>
+                            <span className="dv-menu-title">{view.label}</span>
+                            {state.data[groupType].map((related) => (
+                              <label className="dv-option" key={related.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={memberOf(row, related)}
+                                  onChange={(e) =>
+                                    setMember(row, related, e.target.checked)
+                                  }
+                                />
+                                {String(related.name)}
+                              </label>
+                            ))}
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            store.remove(config.collection, row.id);
+                            setOpen(null);
+                          }}
+                        >
+                          Remove {noun(config.collection)}
+                        </button>
+                      </Menu>
+                    </li>
+                  );
+                })}
+                {draft === `${viewIndex}:${group.id}` && (
+                  <DraftLine
+                    noun={noun(config.collection)}
+                    candidates={
+                      groupType && group.id
+                        ? state.data[config.collection].filter(
+                            (r) => !group.rows.includes(r),
+                          )
+                        : []
+                    }
+                    onCreate={(name) => add(config.collection, group.id, name)}
+                    onPick={(row) => {
+                      const related = state.data[groupType!].find(
+                        (r) => r.id === group.id,
+                      );
+                      if (related) setMember(row, related, true);
+                    }}
+                    onClose={() => setDraft(null)}
+                  />
+                )}
+              </ul>
+              <button
+                className="dv-add-line"
+                aria-label={`Add ${noun(config.collection)}${group.name ? ` under ${group.name}` : ""}`}
+                title="Add a line"
+                hidden={draft === `${viewIndex}:${group.id}`}
+                onClick={() => setDraft(`${viewIndex}:${group.id}`)}
+              >
+                ·
+              </button>
+            </section>
+          </Fragment>
+        ))}
+        {!arranged.some((g) => !g.id) && groupControl}
+      </main>
+    </MenuContext.Provider>
+  );
+}

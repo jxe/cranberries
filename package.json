@@ -1,0 +1,47 @@
+{
+  "name": "cranberries",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.tsx",
+    "./app": "./src/app.tsx",
+    "./seed": "./src/seed.ts",
+    "./vite": {
+      "types": "./src/vite.d.ts",
+      "default": "./src/vite.js"
+    },
+    "./style.css": "./src/style.css"
+  },
+  "files": ["src", "sql"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:db": "tsx --test test/database.integration.ts",
+    "test:db:local": "bash scripts/test-db-local.sh"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "vite": ">=5"
+  },
+  "peerDependenciesMeta": {
+    "vite": { "optional": true }
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.117.2",
+    "@types/node": "^22.19.19",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "pg": "^8.23.1",
+    "prettier": "^3.9.9",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.3"
+  }
+}

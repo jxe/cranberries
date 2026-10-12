@@ -1,0 +1,10 @@
+create role anon;
+create role authenticated;
+create role service_role;
+create schema auth;
+create table auth.users(id uuid primary key);
+create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.uid',true),'')::uuid$$;
+create function auth.role() returns text language sql as $$select coalesce(nullif(current_setting('test.role',true),''),'anon')$$;
+grant usage on schema auth to anon, authenticated, service_role;
+grant execute on all functions in schema auth to anon, authenticated, service_role;
+create publication supabase_realtime;

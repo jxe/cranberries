@@ -1,0 +1,298 @@
+.dv-document {
+  --dv-line: 30px;
+  font:
+    18px/var(--dv-line) "Source Sans 3",
+    Arial,
+    sans-serif;
+  color: #292929;
+  max-width: 900px;
+  margin: 30px auto 90px;
+  padding: 0 42px;
+}
+.dv-document * {
+  box-sizing: border-box;
+}
+.dv-document button,
+.dv-document input {
+  font: inherit;
+}
+.dv-document button {
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.dv-document header {
+  display: grid;
+  grid-template-columns: 1fr 24px;
+  gap: 0;
+  margin: 0 0 30px;
+  padding: 0;
+  line-height: var(--dv-line);
+}
+.dv-document h1,
+.dv-document h2 {
+  font: inherit;
+  font-weight: 700;
+  margin: 0;
+}
+.dv-document nav {
+  display: flex;
+  gap: 24px;
+  margin-top: 15px;
+  grid-column: 1/-1;
+}
+.dv-document nav button {
+  color: #777;
+}
+.dv-document nav button[aria-pressed="true"] {
+  font-weight: 700;
+  color: #292929;
+}
+.dv-save {
+  color: #999;
+  text-align: center;
+}
+.dv-document section {
+  position: relative;
+  margin: 0 0 30px;
+}
+.dv-document ul {
+  padding: 0 0 0 24px;
+  margin: 0;
+}
+.dv-document li {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  line-height: var(--dv-line);
+}
+.dv-text {
+  outline: none;
+  overflow-wrap: anywhere;
+  cursor: text;
+  min-width: 1ch;
+}
+.dv-text:focus {
+  background: #f5f6f8;
+  box-shadow: 0 1px 0 #a2aab8;
+}
+.dv-picker {
+  position: relative;
+  display: inline-block;
+  color: #656565;
+}
+.dv-trigger {
+  line-height: inherit;
+}
+.dv-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  display: block;
+  width: max-content;
+  min-width: min(240px, 80vw);
+  max-width: min(80vw, 360px);
+  max-height: 330px;
+  overflow: auto;
+  background: white;
+  border: 1px solid #e5e7ea;
+  border-radius: 7px;
+  padding: 6px;
+  box-shadow: 0 5px 18px #17233214;
+  color: #555;
+}
+.dv-menu > button,
+.dv-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  line-height: var(--dv-line);
+  padding: 0 6px !important;
+}
+.dv-menu > button:hover {
+  background: #f1f3f5;
+}
+.dv-option input {
+  accent-color: #777;
+}
+.dv-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.dv-bullet {
+  position: absolute;
+  left: -24px;
+  top: 0;
+}
+.dv-bullet > .dv-trigger {
+  width: 24px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dv-person {
+  display: inline-block;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+.dv-person:last-child {
+  margin-right: 0;
+}
+.dv-separator {
+  color: #777;
+}
+.dv-count {
+  margin-left: 0.65em;
+}
+.dv-count > .dv-trigger {
+  font-size: 13px;
+  line-height: 20px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #f5f5f4;
+  color: #8b8b88;
+  vertical-align: 1px;
+}
+.dv-actions {
+  position: absolute;
+  right: -25px;
+  top: 0;
+  opacity: 0;
+}
+.dv-actions .dv-menu {
+  left: auto;
+  right: 0;
+}
+.dv-document li:hover .dv-actions,
+.dv-actions:focus-within {
+  opacity: 1;
+}
+.dv-add-line {
+  position: absolute;
+  left: 0;
+  bottom: -27px;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+  color: #999 !important;
+}
+.dv-document section:hover > .dv-add-line,
+.dv-add-line:focus-visible {
+  opacity: 1;
+}
+.dv-add-group {
+  color: #888 !important;
+  margin-bottom: 30px;
+}
+.dv-error {
+  color: #a43b39;
+  background: #fff2f2;
+  padding: 12px;
+  margin-bottom: 30px;
+}
+.dv-error button {
+  text-decoration: underline;
+}
+.dv-document button:focus-visible {
+  outline: 2px solid #8b9db2;
+  outline-offset: 3px;
+}
+.dv-document .dv-menu .dv-text {
+  flex: 1;
+}
+@media (max-width: 650px) {
+  .dv-document {
+    padding: 0 28px;
+  }
+  .dv-document nav {
+    gap: 18px;
+  }
+  .dv-menu {
+    min-width: 210px;
+  }
+  .dv-actions {
+    opacity: 0.5;
+  }
+  .dv-add-line {
+    opacity: 0.5;
+  }
+}
+.dv-menu-title {
+  display: block;
+  color: #999;
+  padding: 0 6px;
+}
+.dv-document li > span + span:not(.dv-separator):not(.dv-picker) {
+  margin-right: 0.15em;
+}
+
+/* Presence decorates the field without moving text or intercepting clicks. */
+[data-presence-field][data-presence="true"] {
+  box-shadow: 0 2px 0 var(--dv-peer-color);
+  border-radius: 2px;
+}
+.dv-presence-count {
+  grid-column: 1 / -1;
+  color: #888;
+  font-size: 14px;
+  line-height: 20px;
+}
+.dv-presence-count:empty {
+  display: none;
+}
+
+/* Long text sits under its line and shows a prompt while empty. */
+.dv-note {
+  color: #777;
+  font-size: 16px;
+  line-height: 24px;
+  margin: 0 0 6px;
+}
+.dv-multiline {
+  display: block;
+  white-space: pre-wrap;
+}
+.dv-multiline:empty::before {
+  content: attr(data-placeholder);
+  color: #bbb;
+}
+/* Lines with fields below them need air between items. */
+.dv-blocks li {
+  margin-bottom: 12px;
+}
+.dv-blocks .dv-note {
+  margin: 0;
+}
+.dv-draft input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  padding: 0;
+  background: #f5f6f8;
+  box-shadow: 0 1px 0 #a2aab8;
+  color: inherit;
+}
+.dv-draft input::placeholder {
+  color: #bbb;
+}
+.dv-menu > button[aria-selected="true"] {
+  background: #f1f3f5;
+}
+.dv-demo-note {
+  font-size: 14px;
+  color: #888;
+  max-width: 816px;
+  margin: 20px auto;
+  padding: 0 28px;
+}
