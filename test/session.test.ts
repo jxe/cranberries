@@ -10,7 +10,9 @@ function browser(href: string) {
   const kept = new Map<string, string>();
   const calls: { body: any; session?: string }[] = [];
   const sessions = new Map<string, string>();
-  let passcode: { device: string; code: string } | undefined;
+  // The passkey the device made, and the challenges the server has set.
+  let passkey: string | undefined;
+  let challenges = 0;
   const g = globalThis as any;
   g.localStorage = {
     getItem: (k: string) => kept.get(k) ?? null,
@@ -46,15 +48,18 @@ function browser(href: string) {
       return answer(200, { person: person ?? null, admin: !!person });
     if (body.action === "signout")
       return (sessions.delete(session), answer(200, {}));
-    if (body.action === "passcode-set") {
-      passcode = { device: body.device, code: body.passcode };
+    if (/^passkey-(signin-)?options$/.test(body.action))
+      return body.action === "passkey-options" && !person
+        ? answer(401, { message: "Sign in first." })
+        : answer(200, { challenge: `c${++challenges}` });
+    if (body.action === "passkey-add") {
+      passkey = body.response.made;
       return answer(200, { person });
     }
-    if (body.action === "passcode-signin")
-      return passcode?.device === body.device &&
-        passcode?.code === body.passcode
+    if (body.action === "passkey-signin")
+      return passkey && body.response.used === passkey
         ? begin()
-        : answer(401, { message: "Wrong passcode." });
+        : answer(401, { message: "That passkey does not sign in here." });
     if (body.action === "link-create")
       return answer(200, { id: "l", person: body.person, token: "fresh" });
     return person
@@ -63,8 +68,30 @@ function browser(href: string) {
   };
   return { kept, calls, sessions, href: () => g.location.href as string };
 }
+// The device's side: it makes one passkey and offers it, unless told not to.
+const device = { has: "key-1", cancel: false };
+const webauthn = {
+  startRegistration: async ({ optionsJSON }: { optionsJSON: any }) => ({
+    made: device.has,
+    challenge: optionsJSON.challenge,
+  }),
+  async startAuthentication({ optionsJSON }: { optionsJSON: any }) {
+    if (device.cancel)
+      throw Object.assign(
+        Error("The operation either timed out or was not allowed."),
+        {
+          name: "NotAllowedError",
+        },
+      );
+    return { used: device.has, challenge: optionsJSON.challenge };
+  },
+};
 const start = async () => {
-  const session = createSession({ endpoint: "/api", documentId: "doc" });
+  const session = createSession({
+    endpoint: "/api",
+    documentId: "doc",
+    webauthn,
+  });
   await session.start();
   return session;
 };
@@ -75,6 +102,7 @@ test("a sign-in link is exchanged for a session and leaves the address", async (
   assert.deepEqual(session.state(), {
     person: "ada",
     admin: true,
+    passkeys: true,
     remembered: undefined,
   });
   assert.equal(b.kept.get("dv-session:doc"), "session-1");
@@ -98,35 +126,52 @@ test("a dead link signs nobody in, and a forgotten session is dropped", async ()
   assert.equal((await start()).state().person, undefined);
   assert.equal(b.kept.has("dv-session:doc"), false);
 });
-test("a passcode is remembered for the device and signs it in again", async () => {
+test("a passkey made while signed in signs the device in again", async () => {
   const b = browser("https://site.test/?k=good");
   const session = await start();
   let told = 0;
   session.subscribe(() => told++);
-  await session.setPasscode("2468");
+  await session.addPasskey();
+  // What the device made went to the server, answering the server's challenge.
+  assert.deepEqual(b.calls.at(-1)!.body, {
+    action: "passkey-add",
+    response: { made: "key-1", challenge: "c1" },
+  });
   assert.equal(session.state().remembered, "ada");
-  const device = JSON.parse(b.kept.get("dv-device:doc")!);
-  assert.ok(device.secret.length >= 20);
-  assert.ok(!b.kept.get("dv-device:doc")!.includes("2468"));
   await session.signOut();
   assert.deepEqual(session.state(), {
     person: undefined,
     admin: false,
+    passkeys: true,
     remembered: "ada",
   });
   assert.equal(b.sessions.size, 0);
-  // A new visit: nobody is signed in, but the device says who could be.
+  // A new visit: nobody is signed in; the page can say who signed in here last.
   const later = await start();
   assert.equal(later.state().person, undefined);
   assert.equal(later.state().remembered, "ada");
-  await assert.rejects(() => later.signIn("0000"), /Wrong passcode/);
-  await later.signIn("2468");
+  // Backing out of the device's prompt leaves things as they were.
+  device.cancel = true;
+  await assert.rejects(() => later.signIn(), /No passkey was used/);
+  assert.equal(later.state().person, undefined);
+  device.cancel = false;
+  await later.signIn();
   assert.equal(later.state().person, "ada");
-  assert.equal(b.calls.at(-1)!.body.device, device.secret);
+  assert.equal(b.calls.at(-1)!.session, undefined);
+  assert.ok(b.sessions.has(b.kept.get("dv-session:doc")!));
   assert.ok(told >= 2);
-  await later.forget();
-  assert.equal(later.state().remembered, undefined);
-  assert.equal(b.kept.has("dv-device:doc"), false);
+  // Nothing secret is kept by the page: a session token and a name to show.
+  assert.deepEqual([...b.kept.keys()].sort(), [
+    "dv-passkey:doc",
+    "dv-session:doc",
+  ]);
+  // A passkey the server does not know signs nobody in.
+  await later.signOut();
+  device.has = "key-2";
+  await assert.rejects(() => later.signIn(), /does not sign in here/);
+  device.has = "key-1";
+  // Adding one needs someone signed in.
+  await assert.rejects(() => later.addPasskey(), /Sign in first/);
 });
 test("writes carry the session, and nothing is written without one", async () => {
   const b = browser("https://site.test/?k=good");

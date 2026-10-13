@@ -1,8 +1,16 @@
 // Who is asking. An admin hands a person a sign-in link; visiting it gives the
-// browser a session, and a session can set a passcode that signs the same
-// device in again. The database keeps hashes only, so nothing read from it
-// signs anyone in. Part of the server function: never runs in a browser.
-import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+// browser a session, and someone signed in can add a passkey, which signs
+// their device in again. The database keeps token hashes and public keys, so
+// nothing read from it signs anyone in. Part of the server function: never
+// runs in a browser.
+import { createHash, randomBytes } from "node:crypto";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from "@simplewebauthn/server";
+import type { Entity } from "./model";
 import type { Database, Doc, Tables, Tx } from "./server";
 // `trusted` callers (a seed script) skip every check. Otherwise a caller is
 // the person their session belongs to, or nobody.
@@ -14,30 +22,65 @@ export type SignInLink = {
   last_used_at: string | null;
   revoked_at: string | null;
 };
-export const passcodeTries = 5,
-  passcodeLockMinutes = 15;
+// Where the page asking is served. A passkey belongs to `rpId`, the site's
+// host name, and is only ever checked against the origin it was made on.
+export type Site = { origin: string; rpId: string };
+export const challengeMinutes = 5;
 const refuse = (message: string, status: number) =>
   Object.assign(Error(message), { status });
 // Tokens are long and random, so a plain hash is enough to keep them.
 const hash = (secret: string) =>
   createHash("sha256").update(secret).digest("hex");
 const token = () => randomBytes(32).toString("base64url");
-// A passcode is short, so it is stretched, with a salt of its own.
-const stretch = (passcode: string, salt: string) =>
-  new Promise<Buffer>((resolve, reject) =>
-    scrypt(passcode, salt, 32, (error, key) =>
-      error ? reject(error) : resolve(key),
-    ),
-  );
 const text = (value: unknown, min: number, max: number) =>
   typeof value === "string" && value.length >= min && value.length <= max;
 export function createAuth(
   database: Database,
   t: Tables,
   find: (tx: Tx, id: string, lock?: boolean) => Promise<Doc>,
-  // Whether the document has this person.
-  known: (tx: Tx, doc: Doc, person: string) => Promise<boolean>,
+  // One of the document's people, if it has them.
+  lookup: (tx: Tx, doc: Doc, id: string) => Promise<Entity | undefined>,
 ) {
+  // A challenge is kept until it is answered or goes stale; `who` is the
+  // person adding a passkey, or null when it is for signing in.
+  async function remember(
+    tx: Tx,
+    documentId: string,
+    challenge: string,
+    who: string | null,
+  ) {
+    await tx.query(`delete from ${t("challenges")} where expires_at < now()`);
+    await tx.query(
+      `insert into ${t("challenges")}(challenge,document_id,person,expires_at) values ($1,$2,$3, now() + interval '${challengeMinutes} minutes')`,
+      [challenge, documentId, who],
+    );
+  }
+  // The challenge a device answered, if we set it and it is still good. It is
+  // removed as it is read: an answer cannot be played back.
+  async function recall(
+    tx: Tx,
+    documentId: string,
+    response: any,
+    who: string | null,
+  ) {
+    let challenge: unknown;
+    try {
+      challenge = JSON.parse(
+        Buffer.from(response.response.clientDataJSON, "base64url").toString(),
+      ).challenge;
+    } catch {
+      /* Not an answer at all. */
+    }
+    const [kept] = text(challenge, 1, 500)
+      ? await tx.query(
+          `delete from ${t("challenges")} where challenge = $1 and document_id = $2
+             and person is not distinct from $3 and expires_at > now() returning challenge`,
+          [challenge, documentId, who],
+        )
+      : [];
+    if (!kept) throw refuse("That took too long. Try again.", 400);
+    return challenge as string;
+  }
   // The caller a session token stands for; nobody if its link was revoked.
   async function who(
     tx: Tx,
@@ -94,7 +137,7 @@ export function createAuth(
         const doc = await admin(tx, documentId, caller);
         const target =
           person ?? (caller.trusted ? doc.config.admin : undefined);
-        if (!text(target, 1, 500) || !(await known(tx, doc, target as string)))
+        if (!text(target, 1, 500) || !(await lookup(tx, doc, target as string)))
           throw refuse(
             person === undefined
               ? "Name the admin in the config first."
@@ -151,91 +194,134 @@ export function createAuth(
             [hash(session as string), documentId],
           );
       }),
-    // `device` is a random secret the browser keeps; it says which passcode
-    // to check, and the passcode alone signs nobody in without it.
-    setPasscode: (
+    // A passkey for the person signed in: first the options to make one with,
+    // holding a challenge that is good once and not for long.
+    passkeyOptions: (
       documentId: string,
       session: string | null | undefined,
-      device: unknown,
-      passcode: unknown,
+      site: Site,
     ) =>
       database.transaction(async (tx) => {
         const caller = await who(tx, documentId, session);
         if (!caller.person) throw refuse("Sign in first.", 401);
-        if (!text(device, 20, 200)) throw refuse("Invalid device.", 400);
-        if (!text(passcode, 4, 100))
-          throw refuse("Use a passcode of at least 4 characters.", 400);
-        const salt = token();
+        const doc = await find(tx, documentId);
+        const row = await lookup(tx, doc, caller.person);
+        const have = await tx.query<{ id: string }>(
+          `select id from ${t("passkeys")} where document_id = $1 and person = $2 and rp_id = $3`,
+          [documentId, caller.person, site.rpId],
+        );
+        const options = await generateRegistrationOptions({
+          rpName: doc.title ?? doc.config.title,
+          rpID: site.rpId,
+          userID: Buffer.from(`${documentId}\n${caller.person}`),
+          userName: String(row?.name ?? caller.person),
+          attestationType: "none",
+          excludeCredentials: have,
+          // Kept by the device and found without being asked for by name.
+          authenticatorSelection: {
+            residentKey: "required",
+            userVerification: "preferred",
+          },
+        });
+        await remember(tx, documentId, options.challenge, caller.person);
+        return options;
+      }),
+    // Then what the device made, checked against that challenge and this
+    // site. A used challenge stays used, though what it was used for is refused.
+    async addPasskey(
+      documentId: string,
+      session: string | null | undefined,
+      site: Site,
+      response: any,
+    ) {
+      const outcome = await database.transaction(async (tx) => {
+        const caller = await who(tx, documentId, session);
+        if (!caller.person) throw refuse("Sign in first.", 401);
+        const expectedChallenge = await recall(
+          tx,
+          documentId,
+          response,
+          caller.person,
+        );
+        const checked = await verifyRegistrationResponse({
+          response,
+          expectedChallenge,
+          expectedOrigin: site.origin,
+          expectedRPID: site.rpId,
+          requireUserVerification: false,
+        }).catch(() => undefined);
+        if (!checked?.verified || !checked.registrationInfo)
+          return { error: refuse("That passkey could not be checked.", 400) };
+        const { credential } = checked.registrationInfo;
         await tx.query(
-          `insert into ${t("passcodes")}(document_id,device_hash,person,link_id,salt,passcode_hash) values ($1,$2,$3,$4,$5,$6)
-           on conflict (document_id, device_hash) do update set person = excluded.person, link_id = excluded.link_id,
-             salt = excluded.salt, passcode_hash = excluded.passcode_hash, failures = 0, locked_until = null, created_at = now()`,
+          `insert into ${t("passkeys")}(id,document_id,person,link_id,rp_id,public_key,counter,transports) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [
+            credential.id,
             documentId,
-            hash(device as string),
             caller.person,
             caller.link,
-            salt,
-            (await stretch(passcode as string, salt)).toString("hex"),
+            site.rpId,
+            Buffer.from(credential.publicKey).toString("base64url"),
+            credential.counter,
+            JSON.stringify(credential.transports ?? []),
           ],
         );
         return { person: caller.person };
-      }),
-    forgetPasscode: (documentId: string, device: unknown) =>
+      });
+      if ("error" in outcome) throw outcome.error;
+      return outcome;
+    },
+    // Signing in with one: the device offers whichever passkeys it has here.
+    passkeySignInOptions: (documentId: string, site: Site) =>
       database.transaction(async (tx) => {
-        if (text(device, 20, 200))
-          await tx.query(
-            `delete from ${t("passcodes")} where document_id = $1 and device_hash = $2`,
-            [documentId, hash(device as string)],
-          );
+        await find(tx, documentId);
+        const options = await generateAuthenticationOptions({
+          rpID: site.rpId,
+          userVerification: "preferred",
+        });
+        await remember(tx, documentId, options.challenge, null);
+        return options;
       }),
-    async passcodeSignIn(
-      documentId: string,
-      device: unknown,
-      passcode: unknown,
-    ) {
-      // A wrong try is counted and committed before it is refused.
+    async passkeySignIn(documentId: string, site: Site, response: any) {
       const outcome = await database.transaction(async (tx) => {
-        const wrong = { error: refuse("Wrong passcode.", 401) };
-        if (!text(device, 20, 200) || !text(passcode, 1, 100)) return wrong;
-        const at = [documentId, hash(device as string)];
-        const [row] = await tx.query<{
-          person: string;
-          link_id: string;
-          salt: string;
-          passcode_hash: string;
-          failures: number;
-          wait: string | null;
-        }>(
-          `select p.person, p.link_id, p.salt, p.passcode_hash, p.failures,
-             ceil(extract(epoch from p.locked_until - now()) / 60) as wait
-           from ${t("passcodes")} p join ${t("links")} l on l.id = p.link_id
-           where p.document_id = $1 and p.device_hash = $2 and l.revoked_at is null for update of p`,
-          at,
-        );
-        if (!row) return wrong;
-        if (Number(row.wait) > 0)
-          return {
-            error: refuse(
-              `Too many wrong tries. Try again in ${row.wait} ${Number(row.wait) === 1 ? "minute" : "minutes"}.`,
-              429,
-            ),
-          };
-        const given = await stretch(passcode as string, row.salt);
-        if (!timingSafeEqual(given, Buffer.from(row.passcode_hash, "hex"))) {
-          const out = row.failures + 1 >= passcodeTries;
-          await tx.query(
-            `update ${t("passcodes")} set failures = $3, locked_until = ${out ? `now() + interval '${passcodeLockMinutes} minutes'` : "null"}
-             where document_id = $1 and device_hash = $2`,
-            [...at, out ? 0 : row.failures + 1],
-          );
-          return wrong;
-        }
+        const no = {
+          error: refuse("That passkey does not sign in here.", 401),
+        };
+        const expectedChallenge = await recall(tx, documentId, response, null);
+        const [key] = text(response?.id, 1, 2000)
+          ? await tx.query<{
+              person: string;
+              link_id: string;
+              public_key: string;
+              counter: string;
+              transports: any;
+            }>(
+              `select p.person, p.link_id, p.public_key, p.counter, p.transports
+               from ${t("passkeys")} p join ${t("links")} l on l.id = p.link_id
+               where p.id = $1 and p.document_id = $2 and p.rp_id = $3 and l.revoked_at is null for update of p`,
+              [response.id, documentId, site.rpId],
+            )
+          : [];
+        if (!key) return no;
+        const checked = await verifyAuthenticationResponse({
+          response,
+          expectedChallenge,
+          expectedOrigin: site.origin,
+          expectedRPID: site.rpId,
+          requireUserVerification: false,
+          credential: {
+            id: response.id,
+            publicKey: Buffer.from(key.public_key, "base64url"),
+            counter: Number(key.counter),
+            transports: key.transports,
+          },
+        }).catch(() => undefined);
+        if (!checked?.verified) return no;
         await tx.query(
-          `update ${t("passcodes")} set failures = 0, locked_until = null where document_id = $1 and device_hash = $2`,
-          at,
+          `update ${t("passkeys")} set counter = $2, last_used_at = now() where id = $1`,
+          [response.id, checked.authenticationInfo.newCounter],
         );
-        return begin(tx, documentId, row.person, row.link_id);
+        return begin(tx, documentId, key.person, key.link_id);
       });
       if ("error" in outcome) throw outcome.error;
       return outcome;

@@ -1,6 +1,6 @@
-// Who this visitor is signed in as. A sign-in link (`?k=...`) is exchanged
-// with the server function for a session token, which this browser keeps and
-// sends with each request. The server decides who a token stands for; nothing
+// Who this visitor is signed in as. A sign-in link (`?k=...`), or a passkey
+// made after coming in by one, is exchanged with the server function for a
+// session token, which this browser keeps and sends with each request. The server decides who a token stands for; nothing
 // kept here is believed without it.
 import { call } from "./supabase";
 import type { SignInLink } from "./auth";
@@ -9,7 +9,10 @@ export type SessionState = {
   // The person signed in, if anyone.
   person?: string;
   admin: boolean;
-  // The person whose passcode signs this device in.
+  // Whether this page can make and use passkeys at all.
+  passkeys: boolean;
+  // The person a passkey was last made or used for here: a hint for the
+  // page's wording, nothing more.
   remembered?: string;
 };
 export type Session = {
@@ -17,17 +20,36 @@ export type Session = {
   subscribe(fn: () => void): () => void;
   token(): string | undefined;
   signOut(): Promise<void>;
-  // Lets this device sign in again with only the passcode.
-  setPasscode(passcode: string): Promise<void>;
-  signIn(passcode: string): Promise<void>;
-  // Drops the passcode kept for this device.
-  forget(): Promise<void>;
+  // Makes a passkey on this device for the person signed in.
+  addPasskey(): Promise<void>;
+  // Signs in with whichever passkey the device offers for this site.
+  signIn(): Promise<void>;
   // The server no longer knows this session.
   expired(): void;
   // For the admin. `createLink` answers with the address to hand over.
   links(): Promise<SignInLink[]>;
   createLink(person: string): Promise<string>;
   revokeLink(id: string): Promise<void>;
+};
+// The browser's side of a passkey; see @simplewebauthn/browser.
+export type WebAuthn = {
+  startRegistration(options: { optionsJSON: any }): Promise<unknown>;
+  startAuthentication(options: { optionsJSON: any }): Promise<unknown>;
+};
+// A passkey belongs to a host name, so a page reached by a bare IP address
+// (127.0.0.1 rather than localhost) cannot have one.
+const canPasskey = () =>
+  typeof PublicKeyCredential !== "undefined" &&
+  typeof location !== "undefined" &&
+  !/^[\d.]+$|:/.test(location.hostname);
+// What the browser says when someone backs out, in plainer words.
+const plain = (error: unknown) => {
+  const name = (error as Error)?.name;
+  return name === "NotAllowedError" || name === "AbortError"
+    ? Error("No passkey was used.")
+    : name === "InvalidStateError"
+      ? Error("This device already has a passkey for you.")
+      : (error as Error);
 };
 const keep = (key: string) => ({
   get() {
@@ -49,24 +71,25 @@ const keep = (key: string) => ({
 export function createSession(options: {
   endpoint: string;
   documentId: string;
+  // In place of the browser's own, for tests.
+  webauthn?: WebAuthn;
 }): Session & { start(): Promise<void> } {
   const { endpoint, documentId } = options;
   const saved = keep(`dv-session:${documentId}`),
-    device = keep(`dv-device:${documentId}`),
+    hint = keep(`dv-passkey:${documentId}`),
     listeners = new Set<() => void>();
   let token = saved.get();
-  const known = (): { secret?: string; person?: string } => {
-    try {
-      return JSON.parse(device.get() ?? "{}");
-    } catch {
-      return {};
-    }
+  const webauthn = async (): Promise<WebAuthn> =>
+    options.webauthn ?? (await import("@simplewebauthn/browser"));
+  let state: SessionState = {
+    admin: false,
+    passkeys: !!options.webauthn || canPasskey(),
+    remembered: hint.get(),
   };
-  let state: SessionState = { admin: false, remembered: known().person };
   // `session` replaces the kept token, when given: null drops it.
   const change = (next: Partial<SessionState>, session?: string | null) => {
     if (session !== undefined) saved.set((token = session ?? undefined));
-    state = { ...state, ...next, remembered: known().person };
+    state = { ...state, ...next, remembered: hint.get() };
     listeners.forEach((fn) => fn());
   };
   const ask = (action: string, body: object = {}) =>
@@ -109,25 +132,26 @@ export function createSession(options: {
       await ask("signout").catch(() => {});
       session.expired();
     },
-    async setPasscode(passcode) {
-      const secret =
-        known().secret ?? crypto.randomUUID() + crypto.randomUUID();
-      const { person } = await ask("passcode-set", {
-        device: secret,
-        passcode,
-      });
-      device.set(JSON.stringify({ secret, person }));
+    async addPasskey() {
+      const optionsJSON = await ask("passkey-options");
+      const response = await (
+        await webauthn()
+      )
+        .startRegistration({ optionsJSON })
+        .catch((error) => Promise.reject(plain(error)));
+      hint.set((await ask("passkey-add", { response })).person);
       change({});
     },
-    async signIn(passcode) {
-      signedIn(
-        await ask("passcode-signin", { device: known().secret, passcode }),
-      );
-    },
-    async forget() {
-      await ask("passcode-forget", { device: known().secret }).catch(() => {});
-      device.set(undefined);
-      change({});
+    async signIn() {
+      const optionsJSON = await ask("passkey-signin-options");
+      const response = await (
+        await webauthn()
+      )
+        .startAuthentication({ optionsJSON })
+        .catch((error) => Promise.reject(plain(error)));
+      const made = await ask("passkey-signin", { response });
+      hint.set(made.person);
+      signedIn(made);
     },
     links: async () => (await ask("links")).links,
     async createLink(person) {
@@ -151,15 +175,14 @@ export function demoSession(person?: string): Session {
     throw Error("Connect a database to use sign-in links.");
   };
   // One object, so a page watching it sees no change.
-  const state = { person, admin: false };
+  const state = { person, admin: false, passkeys: false };
   return {
     state: () => state,
     subscribe: () => () => {},
     token: () => undefined,
     signOut: no,
-    setPasscode: no,
+    addPasskey: no,
     signIn: no,
-    forget: no,
     expired() {},
     links: no,
     createLink: no,

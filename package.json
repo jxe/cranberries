@@ -15,7 +15,11 @@
     },
     "./style.css": "./src/style.css"
   },
-  "files": ["src", "sql", "scripts/sql.js"],
+  "files": [
+    "src",
+    "sql",
+    "scripts/sql.js"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "sql": "node scripts/sql.js",
@@ -30,7 +34,9 @@
     "vite": ">=5"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": true }
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.117.2",
@@ -45,5 +51,9 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.3"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.3"
   }
 }

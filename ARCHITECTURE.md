@@ -81,11 +81,18 @@ or one of the record's owners as stored before the operation. The writer named
 in a change is the session's person.
 
 A link's token is 32 random bytes shown once to whoever made the link. Sessions
-are made from links (or from a passcode, which carries its link along), so
-revoking a link ends everything that descends from it. A passcode is checked
-only together with the device's secret, so a guessed passcode is useless from
-another browser; wrong tries are counted in the database and commit even though
-the request is refused. Sessions do not expire by themselves.
+are made from links (or from a passkey, which carries its link along), so
+revoking a link ends everything that descends from it. Sessions do not expire
+by themselves.
+
+A passkey is made by someone already signed in and is stored as a credential
+ID, a public key and the host name it was made on. The device keeps it and
+offers it by itself (a discoverable credential), so signing in needs no name.
+The server sets a random challenge, kept in the database for five minutes and
+deleted when it is answered, right or wrong; it then checks the signature, the
+challenge and the origin with `@simplewebauthn/server`. The origin it expects
+is the one the request came to, so the same function serves any host name it
+is deployed on, and a page elsewhere gets nothing to sign.
 
 Config and access flags are provisioned by a trusted seed, never supplied as
 part of a browser write. The admin's first link comes from a trusted script.

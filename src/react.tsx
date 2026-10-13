@@ -752,7 +752,7 @@ export function DocumentEditor({
             </span>
             {session &&
               people &&
-              (signed?.person || signed?.remembered ? (
+              (signed?.person || signed?.passkeys ? (
                 <Menu
                   id="me"
                   className="dv-me"

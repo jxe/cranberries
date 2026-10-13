@@ -4,6 +4,7 @@ import pg from "pg";
 import { createServer, pgDatabase } from "../src/server";
 import type { Config, Data, Operation } from "../src/model";
 import { config, data } from "./fixtures";
+import { authenticator } from "./authenticator";
 const connectionString = process.env.DV_TEST_DATABASE_URL;
 if (!connectionString)
   throw Error(
@@ -690,101 +691,229 @@ both(
   },
 );
 both(
-  "a passcode signs its own device in, and wrong tries lock it",
+  "a passkey is made by someone signed in and signs them in again",
   async () => {
     const id = await provision(team, teamData);
+    const origin = "https://site.test";
     const q = await signIn(id, "q");
-    const device = crypto.randomUUID() + crypto.randomUUID();
-    const enter = (passcode: unknown, d: unknown = device) =>
-      post(id, { action: "passcode-signin", device: d, passcode });
-    // Setting one needs a session, and a passcode worth the name.
+    const ask = async (
+      body: object,
+      session?: string,
+      from: string | null = origin,
+      on = id,
+    ): Promise<any> => {
+      const r = await server.handle({
+        method: "POST",
+        document: on,
+        session,
+        origin: from,
+        body,
+      });
+      return { status: r.status, ...(r.body as object) };
+    };
+    const device = authenticator(origin);
+    // Making one needs a session, and a page on a site.
+    assert.equal((await ask({ action: "passkey-options" })).status, 401);
     assert.equal(
-      (await post(id, { action: "passcode-set", device, passcode: "2468" }))
-        .status,
-      401,
-    );
-    assert.equal(
-      (await post(id, { action: "passcode-set", device, passcode: "24" }, q))
-        .status,
+      (await ask({ action: "passkey-options" }, q, null)).status,
       400,
     );
-    assert.equal(
-      (
-        await post(
-          id,
-          { action: "passcode-set", device: "short", passcode: "2468" },
-          q,
-        )
-      ).status,
-      400,
+    const options = await ask({ action: "passkey-options" }, q);
+    assert.deepEqual(
+      [options.status, options.rp.id, options.user.name],
+      [200, "site.test", "q"],
     );
-    assert.equal(
-      (await post(id, { action: "passcode-set", device, passcode: "2468" }, q))
-        .status,
-      200,
+    // The device is to keep it, so it can be found without naming anyone.
+    assert.equal(options.authenticatorSelection.residentKey, "required");
+    const made = device.create(options);
+    // Nobody else can finish it, and it is checked against the site it was for.
+    const p = await signIn(id, "p");
+    const add = async (response: object, session = q, from = origin) =>
+      (await ask({ action: "passkey-add", response }, session, from)).status;
+    assert.equal(await add(made, p), 400);
+    const elsewhere = device.create(
+      await ask({ action: "passkey-options" }, q),
     );
-    const kept = JSON.stringify(
-      (await db.query("select * from dv_passcodes")).rows,
+    assert.equal(await add(elsewhere, q, "https://evil.test"), 400);
+    // A challenge is good once, whether its answer was taken or refused.
+    assert.equal(await add(elsewhere), 400);
+    assert.deepEqual(await ask({ action: "passkey-add", response: made }, q), {
+      status: 200,
+      person: "q",
+    });
+    assert.equal(await add(made), 400);
+    const kept = (
+      await db.query("select * from dv_passkeys where document_id = $1", [id])
+    ).rows;
+    assert.deepEqual(
+      kept.map((k) => [k.id, k.person, k.rp_id]),
+      [[device.id, "q", "site.test"]],
     );
-    assert.ok(!kept.includes(device) && !kept.includes("2468"));
-    const back = await enter("2468");
+    // The device already holding one is told so, by being named in the options.
+    assert.deepEqual(
+      (await ask({ action: "passkey-options" }, q)).excludeCredentials.map(
+        (c: any) => c.id,
+      ),
+      [device.id],
+    );
+    // Signing in: no session, no name, only the passkey.
+    const challenge = () => ask({ action: "passkey-signin-options" });
+    const first = await challenge();
+    assert.deepEqual(
+      [first.status, first.rpId, first.allowCredentials],
+      [200, "site.test", undefined],
+    );
+    const answer = device.get(first);
+    const back = await ask({ action: "passkey-signin", response: answer });
     assert.deepEqual([back.status, back.person, back.admin], [200, "q", false]);
     assert.equal(
       (await write(id, back.session, on("free", "name", "Free", "Q's"))).status,
       200,
     );
-    // The passcode is no use from another device, or on another document.
+    // The same answer does not work twice.
     assert.equal(
-      (await enter("2468", crypto.randomUUID() + crypto.randomUUID())).status,
+      (await ask({ action: "passkey-signin", response: answer })).status,
+      400,
+    );
+    // Nor does an answer given to another site, one signed by another device
+    // claiming to be this one, one to a made-up challenge, or a late one.
+    const refused = async (response: object, from = origin) =>
+      (await ask({ action: "passkey-signin", response }, undefined, from))
+        .status;
+    assert.equal(
+      await refused(device.get(await challenge(), "https://evil.test")),
       401,
     );
+    assert.equal(
+      await refused(device.get(await challenge()), "https://evil.test"),
+      401,
+    );
+    const forged = authenticator(origin).get(await challenge());
+    assert.equal(
+      await refused({ ...forged, id: device.id, rawId: device.id }),
+      401,
+    );
+    assert.equal(
+      await refused(authenticator(origin).get(await challenge())),
+      401,
+    );
+    assert.equal(await refused(device.get({ challenge: "bWFkZS11cA" })), 400);
+    const late = await challenge();
+    await db.query(
+      "update dv_challenges set expires_at = now() - interval '1 second' where challenge = $1",
+      [late.challenge],
+    );
+    assert.equal(await refused(device.get(late)), 400);
+    // A passkey is for its own document, and a challenge for the one that set it.
     const other = await provision(team, teamData);
+    const theirs = await ask(
+      { action: "passkey-signin-options" },
+      undefined,
+      origin,
+      other,
+    );
     assert.equal(
       (
-        await post(other, {
-          action: "passcode-signin",
-          device,
-          passcode: "2468",
-        })
+        await ask(
+          { action: "passkey-signin", response: device.get(theirs) },
+          undefined,
+          origin,
+          other,
+        )
       ).status,
       401,
     );
-    // Four wrong tries, then the right one: the count starts over.
-    for (let n = 0; n < 4; n++) assert.equal((await enter("0000")).status, 401);
-    assert.equal((await enter("2468")).status, 200);
-    // Five wrong tries lock the device, against the right passcode too.
-    for (let n = 0; n < 5; n++) assert.equal((await enter("0000")).status, 401);
-    const locked = await enter("2468");
-    assert.equal(locked.status, 429);
-    assert.match(locked.message, /Try again in 15 minutes/);
-    // Until the time is up.
-    await db.query(
-      "update dv_passcodes set locked_until = now() - interval '1 second' where document_id = $1",
-      [id],
+    assert.equal(
+      await refused(
+        device.get(
+          await ask(
+            { action: "passkey-signin-options" },
+            undefined,
+            origin,
+            other,
+          ),
+        ),
+      ),
+      400,
     );
-    assert.equal((await enter("2468")).status, 200);
-    // Setting it again replaces it.
-    await post(id, { action: "passcode-set", device, passcode: "13579" }, q);
-    assert.equal((await enter("2468")).status, 401);
-    assert.equal((await enter("13579")).status, 200);
-    // Revoking the link the passcode came from ends it and its sessions.
+    // A server told which sites it serves refuses the rest.
+    const strict = createServer({
+      database: pgDatabase(pool),
+      origins: [origin],
+    });
+    const from = (site: string) =>
+      strict.handle({
+        method: "POST",
+        document: id,
+        origin: site,
+        body: { action: "passkey-signin-options" },
+      });
+    assert.deepEqual(
+      [(await from(origin)).status, (await from("https://evil.test")).status],
+      [200, 400],
+    );
+    // Answered or not, challenges do not pile up.
+    await db.query(
+      "update dv_challenges set expires_at = now() - interval '1 second'",
+    );
+    await challenge();
+    assert.equal(
+      (await db.query("select 1 from dv_challenges")).rows.length,
+      1,
+    );
+    // It still works, until the link its owner came in by is revoked.
+    assert.equal(await refused(device.get(await challenge())), 200);
     const boss = await signIn(id, "boss");
     const [link] = (await post(id, { action: "links" }, boss)).links.filter(
       (l: any) => l.person === "q",
     );
     await post(id, { action: "link-revoke", id: link.id }, boss);
-    assert.equal((await enter("13579")).status, 401);
+    assert.equal(await refused(device.get(await challenge())), 401);
     assert.equal(
       (await post(id, { action: "whoami" }, back.session)).person,
       null,
     );
-    // Forgetting a device removes its passcode.
-    const again = await signIn(id, "q");
-    await post(id, { action: "passcode-set", device, passcode: "2468" }, again);
-    await post(id, { action: "passcode-forget", device });
-    assert.equal((await enter("2468")).status, 401);
   },
 );
+both("over HTTP, a passkey's site is the one the request came to", async () => {
+  const id = await provision(team, teamData);
+  const call = async (headers: Record<string, string>) => {
+    const req = Object.assign(
+      (async function* () {
+        yield Buffer.from(JSON.stringify({ action: "passkey-signin-options" }));
+      })(),
+      { method: "POST", url: `/api/cranberries?document=${id}`, headers },
+    );
+    const res = {
+      statusCode: 0,
+      body: "",
+      setHeader() {},
+      end(body: string) {
+        this.body = body;
+      },
+    };
+    await server.node(req, res);
+    return [res.statusCode, JSON.parse(res.body).rpId];
+  };
+  assert.deepEqual(
+    await call({ origin: "http://localhost:3004", host: "localhost:3004" }),
+    [200, "localhost"],
+  );
+  assert.deepEqual(
+    await call({
+      origin: "https://my.site",
+      host: "internal:3000",
+      "x-forwarded-host": "my.site",
+    }),
+    [200, "my.site"],
+  );
+  // A page elsewhere, or no page at all, gets nothing to sign.
+  assert.equal(
+    (await call({ origin: "https://evil.test", host: "my.site" }))[0],
+    400,
+  );
+  assert.equal((await call({ host: "my.site" }))[0], 400);
+});
 both("browsers cannot read or change the sign-in tables", async () => {
   const id = await provision(team, teamData);
   await signIn(id, "q");
@@ -794,10 +923,12 @@ both("browsers cannot read or change the sign-in tables", async () => {
       for (const sql of [
         "select * from dv_links",
         "select * from dv_sessions",
-        "select * from dv_passcodes",
+        "select * from dv_passkeys",
+        "select * from dv_challenges",
         "update dv_links set revoked_at = null",
         "insert into dv_sessions(token_hash,document_id,person,link_id) select 'x',document_id,person,id from dv_links",
-        "delete from dv_passcodes",
+        "delete from dv_passkeys",
+        "insert into dv_challenges(challenge,document_id,expires_at) select 'x',id,now() from dv_documents",
       ])
         await assert.rejects(() => db.query(sql), /permission denied/);
     } finally {

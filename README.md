@@ -106,15 +106,20 @@ links": make a link for any person, see the links in use, revoke one. A link
 works any number of times, on any device, until it is revoked; revoking it also
 signs out every browser that came in by it.
 
-Anyone signed in can set a passcode for the device they are on. If that device
-is later signed out, it offers "Sign in as <name>" and asks only for the
-passcode. Five wrong tries lock the device out for fifteen minutes. A passcode
-ends with the link it came from.
+Anyone signed in can add a passkey for the device they are on (Touch ID,
+Windows Hello, a phone's screen lock). If that device is later signed out, the
+menu offers "Sign in with a passkey" and the device does the rest; no name or
+link is asked for. A passkey ends with the link its owner came in by. Passkeys
+belong to a host name, so in development open `http://localhost:...`, not
+`127.0.0.1`.
 
 All of this is kept by the server function, not the page. Every write must
 carry a session; the change is logged under that session's person, whatever
-the request claims. The database holds hashes only: of link tokens, of session
-tokens, of each device's secret, and each passcode salted and stretched.
+the request claims. The database holds hashes of link and session tokens and
+the public half of each passkey. Passkeys are checked on the server with
+`@simplewebauthn/server`, against a challenge that is good once, for five
+minutes, and against the site the request came to (or pass `origins:
+["https://my.site"]` to `createServer` to name the sites yourself).
 `createSession({ endpoint, documentId })` is the browser's side, which
 `mountDocument` sets up when given an `endpoint`; pass it as `session` to
 `createSupabaseDocument` and the editor. The in-memory demo has no server, so
@@ -206,7 +211,7 @@ The plugin only maps the host's Supabase URL and publishable key onto those two
 
 `npm test` covers sessions, grouping, synchronization, retries and conflicts.
 `npm run test:db:local` runs the server function against a temporary local
-PostgreSQL: writes, sign-in links, revoking, passcodes and ownership.
+PostgreSQL: writes, sign-in links, revoking, passkeys and ownership.
 
 ## React Router / TanStack Start
 

@@ -275,7 +275,7 @@ test("people show an avatar: their picture, or initials", () => {
   assert.match(
     page({
       ...demoSession(),
-      state: () => ({ admin: false, remembered: "g" }),
+      state: () => ({ admin: false, passkeys: true, remembered: "g" }),
     }),
     />Sign in as Grace Hopper</,
   );

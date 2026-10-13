@@ -57,7 +57,14 @@ export type Adaptor = {
   init(tx: Tx, t: Tables, doc: Doc, data: Data): Promise<void>;
 };
 export type Tables = (
-  name: "documents" | "changes" | "facts" | "links" | "sessions" | "passcodes",
+  name:
+    | "documents"
+    | "changes"
+    | "facts"
+    | "links"
+    | "sessions"
+    | "passkeys"
+    | "challenges",
 ) => string;
 type Fact = {
   collection: string;
@@ -279,6 +286,9 @@ export type ServerOptions = {
   // Where the library's tables are, when not `public`.
   schema?: string;
   adaptors?: Record<string, Adaptor>;
+  // The sites whose pages may make and use passkeys, as origins
+  // ("https://my.site"). Without it, the site the function itself is on.
+  origins?: string[];
 };
 export type { Caller, SignInLink } from "./auth";
 export function createServer(options: ServerOptions) {
@@ -301,14 +311,13 @@ export function createServer(options: ServerOptions) {
     revision: doc.revision,
     title: doc.title ?? doc.config.title,
   });
-  const auth = createAuth(database, t, find, async (tx, doc, person) => {
+  const auth = createAuth(database, t, find, async (tx, doc, id) => {
     const people = Object.keys(doc.config.collections).find(
       (type) => doc.config.collections[type].kind === "person",
     );
-    return (
-      !!people &&
-      !!(await adaptors[doc.adaptor].get(tx, t, doc, people, person))
-    );
+    return people
+      ? adaptors[doc.adaptor].get(tx, t, doc, people, id)
+      : undefined;
   });
   async function read(documentId: string, caller: Caller = {}) {
     return database.transaction(async (tx) => {
@@ -458,7 +467,19 @@ export function createServer(options: ServerOptions) {
   // What a page asks for, as JSON over HTTP: a read, a write, or with an
   // `action`, something about signing in. `session` is the token the page
   // holds, from the Authorization header; it alone says who is asking.
-  async function act(document: string, session: string | null, body: any) {
+  async function act(
+    document: string,
+    session: string | null,
+    body: any,
+    origin?: string | null,
+  ) {
+    // Passkeys belong to the site the page is on, which must be one we serve.
+    const here = () => {
+      const url = URL.canParse(origin ?? "") ? new URL(origin!) : undefined;
+      if (!url || (options.origins && !options.origins.includes(url.origin)))
+        throw refuse("Passkeys are not available from here.", 400);
+      return { origin: url.origin, rpId: url.hostname };
+    };
     const signedIn = () =>
       database.transaction((tx) => auth.caller(tx, document, session));
     switch (body.action) {
@@ -468,12 +489,14 @@ export function createServer(options: ServerOptions) {
         return auth.who(document, session);
       case "signout":
         return (await auth.signOut(document, session), {});
-      case "passcode-set":
-        return auth.setPasscode(document, session, body.device, body.passcode);
-      case "passcode-signin":
-        return auth.passcodeSignIn(document, body.device, body.passcode);
-      case "passcode-forget":
-        return (await auth.forgetPasscode(document, body.device), {});
+      case "passkey-options":
+        return auth.passkeyOptions(document, session, here());
+      case "passkey-add":
+        return auth.addPasskey(document, session, here(), body.response);
+      case "passkey-signin-options":
+        return auth.passkeySignInOptions(document, here());
+      case "passkey-signin":
+        return auth.passkeySignIn(document, here(), body.response);
       case "links":
         return { links: await auth.links(document, await signedIn()) };
       case "link-create":
@@ -489,6 +512,8 @@ export function createServer(options: ServerOptions) {
     method: string;
     document: string | null;
     session?: string | null;
+    // Where the page asking is served, for passkeys.
+    origin?: string | null;
     body?: any;
   }): Promise<{ status: number; body: unknown }> {
     try {
@@ -500,7 +525,7 @@ export function createServer(options: ServerOptions) {
       if (request.body?.action !== undefined)
         return {
           status: 200,
-          body: await act(document, session, request.body),
+          body: await act(document, session, request.body, request.origin),
         };
       const { requestId, operations } = request.body ?? {};
       if (typeof requestId !== "string") throw refuse("Invalid operations");
@@ -550,8 +575,16 @@ export function createServer(options: ServerOptions) {
         body = undefined;
       }
     }
+    // A page's origin counts when it is the site this request came to, or
+    // one of the `origins` named in the options.
+    const header = (name: string) => String(req.headers?.[name] ?? "");
+    const origin = header("origin");
+    const same =
+      URL.canParse(origin) &&
+      new URL(origin).host === (header("x-forwarded-host") || header("host"));
     const result = await handle({
       method: req.method ?? "GET",
+      origin: options.origins || same ? origin : null,
       document: new URL(req.url ?? "", "http://x").searchParams.get("document"),
       session:
         /^Bearer (\S+)$/.exec(String(req.headers?.authorization ?? ""))?.[1] ??

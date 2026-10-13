@@ -98,7 +98,7 @@ test("a write names the person the visitor says they are", async () => {
   let me: string | undefined = "ada";
   const transport = supabaseTransport(client, "example", undefined, {
     ...demoSession(),
-    state: () => ({ person: me, admin: false }),
+    state: () => ({ person: me, admin: false, passkeys: false }),
   });
   await transport.commit("r", []);
   assert.equal(sent.actor, "ada");

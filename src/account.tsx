@@ -1,6 +1,5 @@
-// What the menu at the top right holds: signing in with this device's
-// passcode, or for someone signed in, setting one, the admin's sign-in links,
-// and signing out.
+// What the menu at the top right holds: signing in with a passkey, or for
+// someone signed in, adding one, the admin's sign-in links, and signing out.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Entity } from "./model";
 import type { Session, SessionState, SignInLink } from "./session";
@@ -9,48 +8,40 @@ const day = (stamp: string) =>
     day: "numeric",
     month: "short",
   });
-function Passcode({
-  action,
-  onSubmit,
+// One thing to do that may take a moment and may fail, said in its place.
+function Step({
+  label,
+  done,
+  run,
 }: {
-  action: string;
-  onSubmit: (passcode: string) => Promise<void>;
+  label: string;
+  done?: string;
+  run: () => Promise<void>;
 }) {
-  const [value, setValue] = useState(""),
-    [error, setError] = useState(""),
+  const [note, setNote] = useState<{ text: string; bad?: boolean }>(),
     [busy, setBusy] = useState(false);
-  const submit = async () => {
-    if (busy || !value) return;
-    setBusy(true);
-    setError("");
-    try {
-      await onSubmit(value);
-      setValue("");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
-    <span className="dv-account-form">
-      <input
-        type="password"
-        autoFocus
-        aria-label="Passcode"
-        placeholder="Passcode"
-        autoComplete="off"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void submit();
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setNote(undefined);
+          run()
+            .then(() => done && setNote({ text: done }))
+            .catch((e) => setNote({ text: (e as Error).message, bad: true }))
+            .finally(() => setBusy(false));
         }}
-      />
-      <button type="button" disabled={busy || !value} onClick={submit}>
-        {action}
+      >
+        {label}
       </button>
-      {error && <span role="alert">{error}</span>}
-    </span>
+      {note && (
+        <span className="dv-account-form" role={note.bad ? "alert" : "status"}>
+          {note.text}
+        </span>
+      )}
+    </>
   );
 }
 function Links({
@@ -161,43 +152,22 @@ export function Account({
   prefix: (person: Entity) => ReactNode;
   close: () => void;
 }) {
-  const [panel, setPanel] = useState<"passcode" | "links" | "saved">();
+  const [panel, setPanel] = useState<"links">();
   if (!state.person)
     return (
-      <>
-        <Passcode
-          action="Sign in"
-          onSubmit={(code) => session.signIn(code).then(close)}
-        />
-        <button type="button" onClick={() => void session.forget().then(close)}>
-          Forget this device
-        </button>
-      </>
+      <Step
+        label="Sign in with a passkey"
+        run={() => session.signIn().then(close)}
+      />
     );
   return (
     <>
-      <button
-        type="button"
-        aria-expanded={panel === "passcode"}
-        onClick={() => setPanel(panel === "passcode" ? undefined : "passcode")}
-      >
-        {state.remembered === state.person
-          ? "Change this device’s passcode"
-          : "Set a passcode for this device"}
-      </button>
-      {panel === "passcode" && (
-        <Passcode
-          action="Save"
-          onSubmit={async (code) => {
-            await session.setPasscode(code);
-            setPanel("saved");
-          }}
+      {state.passkeys && (
+        <Step
+          label="Add a passkey for this device"
+          done="Saved. Signed out, this device can sign in with it."
+          run={() => session.addPasskey()}
         />
-      )}
-      {panel === "saved" && (
-        <span className="dv-account-form" role="status">
-          Saved. If you are signed out, this device can sign in with it.
-        </span>
       )}
       {state.admin && (
         <button

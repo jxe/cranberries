@@ -66,7 +66,7 @@ grant all on public.dv_facts to service_role;
 
 -- Signing in. An admin hands a person a link; its token is kept only as a
 -- hash. A link works until it is revoked, which also ends every session and
--- passcode that came from it. Only the server function touches these tables.
+-- passkey that came from it. Only the server function touches these tables.
 create table if not exists public.dv_links (
   id uuid primary key,
   document_id text not null references public.dv_documents(id) on delete cascade,
@@ -93,24 +93,40 @@ alter table public.dv_sessions enable row level security;
 revoke all on public.dv_sessions from anon, authenticated;
 grant all on public.dv_sessions to service_role;
 
--- A passcode signs one device in again: the device holds a random secret, and
--- this holds that secret's hash beside the salted, stretched passcode. Wrong
--- tries are counted, and enough of them lock the device out for a while.
-create table if not exists public.dv_passcodes (
+-- A passkey signs its device in again: the device keeps the private key, and
+-- this the public one. `rp_id` is the site it was made on, the only one it
+-- can be used from. It lasts as long as the link its owner came in by.
+create table if not exists public.dv_passkeys (
+  id text primary key,
   document_id text not null references public.dv_documents(id) on delete cascade,
-  device_hash text not null,
   person text not null,
   link_id uuid not null references public.dv_links(id) on delete cascade,
-  salt text not null,
-  passcode_hash text not null,
-  failures int not null default 0,
-  locked_until timestamptz,
+  rp_id text not null,
+  public_key text not null,
+  counter bigint not null default 0,
+  transports jsonb not null default '[]',
   created_at timestamptz not null default now(),
-  primary key (document_id, device_hash)
+  last_used_at timestamptz
 );
-alter table public.dv_passcodes enable row level security;
-revoke all on public.dv_passcodes from anon, authenticated;
-grant all on public.dv_passcodes to service_role;
+alter table public.dv_passkeys enable row level security;
+revoke all on public.dv_passkeys from anon, authenticated;
+grant all on public.dv_passkeys to service_role;
+
+-- What a device must sign to make or use a passkey. Each is answered once,
+-- within a few minutes, or not at all. `person` is who is adding a passkey;
+-- null when the challenge is for signing in.
+create table if not exists public.dv_challenges (
+  challenge text primary key,
+  document_id text not null references public.dv_documents(id) on delete cascade,
+  person text,
+  expires_at timestamptz not null
+);
+alter table public.dv_challenges enable row level security;
+revoke all on public.dv_challenges from anon, authenticated;
+grant all on public.dv_challenges to service_role;
+
+-- A short-lived earlier design kept typed passcodes; passkeys replaced it.
+drop table if exists public.dv_passcodes;
 
 -- Earlier versions read and wrote through database functions that any browser
 -- could call. The server function replaced them, and they must not outlive it:
