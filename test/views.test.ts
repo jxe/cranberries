@@ -12,7 +12,7 @@ import {
 } from "../src/model";
 import { c, type Infer } from "../src/builder";
 import { createMemoryDocument } from "../src/memory";
-import { createIdentity } from "../src/identity";
+import { demoSession } from "../src/session";
 import { DocumentEditor } from "../src/react";
 const config = defineDocument({
   title: "Shelf",
@@ -263,17 +263,22 @@ test("people show an avatar: their picture, or initials", () => {
     revision: 0,
   });
   const html = renderToString(React.createElement(DocumentEditor, { store }));
-  assert.doesNotMatch(html, /Who are you/);
-  const identity = createIdentity("team");
+  // Nobody picks who they are: the menu is for whoever a session signed in.
+  const page = (session: ReturnType<typeof demoSession>) =>
+    renderToString(React.createElement(DocumentEditor, { store, session }));
+  assert.doesNotMatch(html, /Read only|Your account/);
+  assert.match(page(demoSession()), /Read only/);
+  // A page watches the session's state, so it must not change unprompted.
+  const demo = demoSession("a");
+  assert.equal(demo.state(), demo.state());
+  assert.match(page(demoSession("a")), /aria-label="Your account"/);
   assert.match(
-    renderToString(React.createElement(DocumentEditor, { store, identity })),
-    /Who are you\?/,
+    page({
+      ...demoSession(),
+      state: () => ({ admin: false, remembered: "g" }),
+    }),
+    />Sign in as Grace Hopper</,
   );
-  let told = 0;
-  identity.subscribe(() => told++);
-  identity.set("a");
-  assert.equal(identity.get(), "a");
-  assert.equal(told, 1);
   assert.match(html, /dv-avatar[^>]*>Ad</);
   assert.match(html, /src="\/grace.png"/);
   assert.match(html, />Ada</);

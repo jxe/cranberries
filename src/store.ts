@@ -56,9 +56,12 @@ export class DocumentStore {
   private blocked = false;
   private state: State;
   private storageError = "";
-  // The person this visitor says they are; decides which owned records they may change.
+  // The person signed in here; decides which owned records they may change.
   me: () => string | undefined = () => undefined;
+  // True while nobody is signed in to a document that needs it: nothing changes.
+  readOnly: () => boolean = () => false;
   private may(type: string, id: string) {
+    if (this.readOnly()) return false;
     return canEdit(
       this.config,
       type,
@@ -281,12 +284,18 @@ export class DocumentStore {
     this.enqueue(op);
   }
   create(type: string, value: import("./model").Entity) {
+    if (this.readOnly()) return;
     const op: Operation = { kind: "create", type, id: value.id, value };
     validate(this.config, apply(this.config, this.state.data, op));
     this.enqueue(op);
   }
   setTitle(value: string, expected?: string) {
-    if (!value.trim() || value.length > 500 || value === this.state.title)
+    if (
+      this.readOnly() ||
+      !value.trim() ||
+      value.length > 500 ||
+      value === this.state.title
+    )
       return;
     this.enqueue({
       kind: "title",

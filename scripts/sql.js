@@ -24,5 +24,6 @@ for (const file of files)
   console.log(
     readFileSync(new URL(file, dir), "utf8")
       .replaceAll("public.", `${schema}.`)
-      .replaceAll("schemaname='public'", `schemaname='${schema}'`),
+      .replaceAll("schemaname='public'", `schemaname='${schema}'`)
+      .replaceAll("nspname='public'", `nspname='${schema}'`),
   );

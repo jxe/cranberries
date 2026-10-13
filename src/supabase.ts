@@ -7,12 +7,19 @@ import {
   type Snapshot,
 } from "./model";
 import { DocumentStore, type Transport } from "./store";
+import type { Session } from "./session";
 // The tables live in `public` unless the migrations were installed into
 // another schema (`npm run sql -- <schema>`), which is then passed as `schema`.
 const within = (client: SupabaseClient, schema?: string) =>
   schema ? (client.schema(schema) as unknown as SupabaseClient) : client;
 // Reads and writes go to the server function at `endpoint` (see server.ts).
-async function call(endpoint: string, documentId: string, body?: unknown) {
+// `session` is the token that says who is asking (see session.ts).
+export async function call(
+  endpoint: string,
+  documentId: string,
+  body?: unknown,
+  session?: string,
+) {
   const response = await fetch(
     `${endpoint}?document=${encodeURIComponent(documentId)}`,
     {
@@ -20,14 +27,20 @@ async function call(endpoint: string, documentId: string, body?: unknown) {
       ...(body
         ? {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              ...(session ? { authorization: `Bearer ${session}` } : {}),
+            },
             body: JSON.stringify(body),
           }
         : {}),
     },
   );
   const result = await response.json();
-  if (!response.ok) throw Error(result.message ?? "Request failed.");
+  if (!response.ok)
+    throw Object.assign(Error(result.message ?? "Request failed."), {
+      status: response.status,
+    });
   return result;
 }
 export async function readDocument(
@@ -68,29 +81,36 @@ export async function loadDocument(
     throw error;
   }
 }
-// `actor` names the person making the writes, for the change log.
+// Writes carry the session's token; the server logs them under its person.
 export function supabaseTransport(
   client: SupabaseClient,
   documentId: string,
   schema?: string,
-  actor?: () => string | undefined,
+  session?: Session,
   endpoint?: string,
 ): Transport {
   return {
     read: () => readDocument(client, documentId, schema, endpoint),
     async commit(requestId, operations) {
       if (endpoint)
-        return call(endpoint, documentId, {
-          requestId,
-          operations,
-          actor: actor?.() ?? null,
-        });
+        try {
+          return await call(
+            endpoint,
+            documentId,
+            { requestId, operations },
+            session?.token(),
+          );
+        } catch (error) {
+          // Signed out from elsewhere: the link behind this session was revoked.
+          if ((error as { status?: number }).status === 401) session?.expired();
+          throw error;
+        }
       const { data, error } = await within(client, schema)
         .rpc("dv_apply", {
           document_id: documentId,
           request_id: requestId,
           operations,
-          actor: actor?.() ?? null,
+          actor: session?.state().person ?? null,
         })
         .abortSignal(AbortSignal.timeout(15000));
       if (error) throw error;
@@ -179,7 +199,8 @@ export function createSupabaseDocument(options: {
   config: Config;
   initial: Snapshot;
   schema?: string;
-  actor?: () => string | undefined;
+  // Who is signed in. Without one, or with nobody signed in, nothing changes.
+  session?: Session;
   // The server function that reads and writes, in place of database functions.
   endpoint?: string;
 }) {
@@ -190,7 +211,7 @@ export function createSupabaseDocument(options: {
       options.client,
       options.documentId,
       options.schema,
-      options.actor,
+      options.session,
       options.endpoint,
     ),
     typeof window === "undefined"
@@ -211,7 +232,9 @@ export function createSupabaseDocument(options: {
             ),
         },
   );
-  if (options.actor) store.me = options.actor;
+  const { session } = options;
+  store.me = () => session?.state().person;
+  store.readOnly = () => !session?.state().person;
   return store;
 }
 // Trusted setup only: call with a secret-key client from a seed script, never a browser.

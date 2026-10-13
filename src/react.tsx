@@ -22,7 +22,8 @@ import {
 import { markdown, type Mark } from "./markdown";
 import { DocumentStore } from "./store";
 import { fieldKey, usePresence, type PresenceOptions } from "./presence";
-import type { Identity } from "./identity";
+import type { Session } from "./session";
+import { Account } from "./account";
 const MenuContext = createContext<{
   open: string | null;
   setOpen: (key: string | null) => void;
@@ -407,8 +408,8 @@ export function useDocument(store: DocumentStore) {
 export type DocumentEditorProps = {
   store: DocumentStore;
   presence?: PresenceOptions;
-  // Lets a visitor say which person they are; see createIdentity.
-  identity?: Identity;
+  // Who is signed in, and the menu for it; see createSession.
+  session?: Session;
   // Shown before a related record's name. People get their avatar unless this
   // returns something else; return null for nothing.
   renderPrefix?: (type: string, entity: Entity) => ReactNode;
@@ -420,7 +421,7 @@ export function DocumentEditor({
   renderPrefix: customPrefix,
   renderLabel,
   presence,
-  identity,
+  session,
 }: DocumentEditorProps) {
   const state = useDocument(store),
     config = store.config;
@@ -446,13 +447,15 @@ export function DocumentEditor({
   const people = Object.keys(config.collections).find(
     (type) => config.collections[type].kind === "person",
   );
-  const claimed = useSyncExternalStore(
-    identity?.subscribe ?? (() => () => {}),
-    () => identity?.get(),
-    () => undefined,
+  const signed = useSyncExternalStore(
+    session?.subscribe ?? (() => () => {}),
+    () => session?.state(),
+    () => session?.state(),
   );
   const everyone = (people && state.data[people]) || [];
-  const me = everyone.find((r) => r.id === claimed);
+  const me = everyone.find((r) => r.id === signed?.person);
+  const remembered = everyone.find((r) => r.id === signed?.remembered);
+  const readOnly = store.readOnly();
   const others = usePresence(root, presence, {
     me: me?.id,
     face: (id) => {
@@ -548,7 +551,8 @@ export function DocumentEditor({
   const noun = (type: string) => labelOf(config, type);
   const fixed = (type: string) => config.collections[type].fixed ?? false;
   // A record with owners can be changed only by one of them.
-  const can = (type: string, row: Entity) => canEdit(config, type, row, me?.id);
+  const can = (type: string, row: Entity) =>
+    !readOnly && canEdit(config, type, row, signed?.person);
   const text = (type: string, row: Entity, field = "name") =>
     fixed(type) ? (
       <span>{String(row[field])}</span>
@@ -665,6 +669,7 @@ export function DocumentEditor({
             <input
               type="checkbox"
               aria-label={`Include ${r.name}`}
+              disabled={!can(config.main, row)}
               checked={(value as string[]).includes(r.id)}
               onChange={(e) =>
                 store.link(config.main, row.id, name, r.id, e.target.checked)
@@ -678,7 +683,7 @@ export function DocumentEditor({
     );
   }
   const groupControl =
-    groupType && !fixed(groupType) ? (
+    groupType && !fixed(groupType) && !readOnly ? (
       <button className="dv-add-group" onClick={() => add(groupType)}>
         + Add a {noun(groupType)}
       </button>
@@ -699,6 +704,7 @@ export function DocumentEditor({
           <header>
             <h1>
               <EditableText
+                readOnly={readOnly}
                 presenceKey={fieldKey("", "", "title")}
                 value={state.title}
                 label="Document title"
@@ -744,50 +750,42 @@ export function DocumentEditor({
                   ? `+${unknown}`
                   : `${unknown} ${unknown === 1 ? "other" : "others"} here`)}
             </span>
-            {identity && people && (
-              <Menu
-                id="me"
-                className="dv-me"
-                ariaLabel="Who you are"
-                label={
-                  me ? (
-                    <>
-                      {renderPrefix(people, me)}
-                      {label(people, me)}
-                    </>
-                  ) : (
-                    "Who are you?"
-                  )
-                }
-              >
-                {everyone.map((r) => (
-                  <button
-                    type="button"
-                    key={r.id}
-                    aria-pressed={r.id === me?.id}
-                    onClick={() => {
-                      identity.set(r.id);
-                      setOpen(null);
-                    }}
-                  >
-                    {renderPrefix(people, r)}
-                    {String(r.name)}
-                    {r.id === me?.id ? " ✓" : ""}
-                  </button>
-                ))}
-                {me && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      identity.set(undefined);
-                      setOpen(null);
-                    }}
-                  >
-                    Not me
-                  </button>
-                )}
-              </Menu>
-            )}
+            {session &&
+              people &&
+              (signed?.person || signed?.remembered ? (
+                <Menu
+                  id="me"
+                  className="dv-me"
+                  ariaLabel={me ? "Your account" : "Sign in"}
+                  label={
+                    me ? (
+                      <>
+                        {renderPrefix(people, me)}
+                        {label(people, me)}
+                      </>
+                    ) : signed.person ? (
+                      "Signed in"
+                    ) : (
+                      `Sign in${remembered ? ` as ${remembered.short || remembered.name}` : ""}`
+                    )
+                  }
+                >
+                  <Account
+                    session={session}
+                    state={signed}
+                    people={everyone}
+                    prefix={(row) => renderPrefix(people, row)}
+                    close={() => setOpen(null)}
+                  />
+                </Menu>
+              ) : (
+                <span
+                  className="dv-me dv-read-only"
+                  title="Open your sign-in link to make changes."
+                >
+                  Read only
+                </span>
+              ))}
             <nav aria-label="Group document">
               {config.views.map((v, i) => (
                 <button
@@ -1019,7 +1017,7 @@ export function DocumentEditor({
                   className="dv-add-line"
                   aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
                   title="Add a line"
-                  hidden={draft === `${viewIndex}:${group.id}`}
+                  hidden={readOnly || draft === `${viewIndex}:${group.id}`}
                   onClick={() => setDraft(`${viewIndex}:${group.id}`)}
                 >
                   ·

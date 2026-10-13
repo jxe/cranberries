@@ -65,14 +65,31 @@ history, and trimming it would also break retries.
 
 ## Trust boundary
 
-Browser clients receive a publishable key. They read through `dv_read` and the
-change log, both limited to documents they may read, and cannot touch document
-rows, facts or the log directly. The security-definer RPC uses a fixed search
-path, checks document write access and validates every operation against the
-stored config before committing. The writer named in a change is what the page
-claimed, not a verified identity. Config and access flags are provisioned by a trusted
-seed/migration, never supplied as part of a browser write. A service secret is
-used only by the seed script. Private app login UI is outside this library.
+Browser clients receive a publishable key. With it they can read the change
+log of a readable document, their live feed, and nothing else: they cannot
+touch document rows, facts, the log or the sign-in tables. Everything else goes
+through the server function, which holds the database secret. An older install
+exposed database functions (`dv_apply` and others) to browsers; `schema.sql`
+drops them, since they would write without asking who is writing.
+
+The server function decides who is asking from one thing: the session token in
+the request's Authorization header, looked up by its hash and good only while
+the link it came from is not revoked. No token, no person, and no write. With
+a person, it checks the document is open to writing, each operation against
+the stored config, and for an owned collection, that the person is the admin
+or one of the record's owners as stored before the operation. The writer named
+in a change is the session's person.
+
+A link's token is 32 random bytes shown once to whoever made the link. Sessions
+are made from links (or from a passcode, which carries its link along), so
+revoking a link ends everything that descends from it. A passcode is checked
+only together with the device's secret, so a guessed passcode is useless from
+another browser; wrong tries are counted in the database and commit even though
+the request is refused. Sessions do not expire by themselves.
+
+Config and access flags are provisioned by a trusted seed, never supplied as
+part of a browser write. The admin's first link comes from a trusted script.
+Presence, the faces of other visitors, is not verified.
 
 ## Current limits
 
@@ -80,5 +97,7 @@ SQL semantics are tested on PostgreSQL and client synchronization on an in-proce
 transport. The package ships TypeScript source for the host's bundler; there are no
 compiled npm artifacts. The change feed has not yet run against Supabase
 Realtime itself. The log records history but there is no undo UI; durable
-offline drafts and granular permissions are not implemented. Clearing an entity's name deletes it; apps that
+offline drafts are not implemented. Permissions are signed in or not, owners,
+and one admin; there are no roles beyond that, and a signed-in person can still
+rename or remove people. Clearing an entity's name deletes it; apps that
 need recovery should add history before treating this as production-grade editing.

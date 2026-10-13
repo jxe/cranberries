@@ -34,6 +34,8 @@ export type Config = {
   views: View[];
   // Show a box that filters lines by their text and related names.
   search?: boolean;
+  // The person who hands out sign-in links, and may change any record.
+  admin?: string;
 };
 // Group by a field of the main collection, by another collection's relationship
 // to it (rows keep that relationship's order), or omit groupBy for a flat view.
@@ -125,10 +127,16 @@ export function defineDocument(input: ConfigInput): Config {
         : view,
     ),
     ...(input.search ? { search: true } : {}),
+    ...(input.admin ? { admin: input.admin } : {}),
   };
   const fields = config.collections[main]?.fields;
   if (!fields || !config.views.length || !config.line.length)
     throw Error("A main collection, line, and views are required.");
+  if (
+    config.admin &&
+    !Object.values(config.collections).some((c) => c.kind === "person")
+  )
+    throw Error("An admin is one of a collection of people.");
   for (const collection of Object.values(config.collections)) {
     const own = collection.fields;
     const owners = collection.owners && own[collection.owners];
@@ -284,7 +292,8 @@ export function search(
 }
 export const titleAfter = (title: string, ops: Operation[]) =>
   ops.reduce((t, op) => (op.kind === "title" ? op.value : t), title);
-// Whether the visitor who says they are `me` may change this record.
+// Whether the person signed in as `me` may change this record. This is the
+// ownership rule only: the server also refuses anyone who is not signed in.
 export function canEdit(
   config: Config,
   type: string,
@@ -293,7 +302,10 @@ export function canEdit(
 ) {
   const field = config.collections[type]?.owners;
   const owners = (field && (row?.[field] as string[])) || [];
-  return !owners.length || (me !== undefined && owners.includes(me));
+  return (
+    !owners.length ||
+    (me !== undefined && (me === config.admin || owners.includes(me)))
+  );
 }
 export function newEntity(config: Config, type: string, id: string): Entity {
   return Object.fromEntries([

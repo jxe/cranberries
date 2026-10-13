@@ -85,20 +85,53 @@ in. People are drawn with an avatar (their image, or initials) and named by
 their short name where space is tight. `renderPrefix(type, entity)` and
 `renderLabel(type, entity)` replace either for app-specific rendering.
 
-With `identity={createIdentity(documentId)}` on the editor (`mountDocument`
-does this), a visitor can pick which person they are. It is remembered in the
-browser and is a claim, not a login. Their writes are logged under that person
-(pass `actor: identity.get` to `createSupabaseDocument`), and other visitors see
-their face on the field they are in.
+## Signing in
+
+A visitor reads without signing in and changes nothing. To change anything they
+need a sign-in link, which stands for one person in the collection of people.
+Nobody picks who they are.
+
+`admin: "<person id>"` in the config names the one person who hands out links.
+The admin's own first link comes from a script with the database secret:
+
+```ts
+// scripts/admin-link.ts, run with DATABASE_URL in the environment
+const server = createServer({ database: pgDatabase(pool), schema });
+console.log(await server.adminLink(documentId, "https://my.site"));
+```
+
+Opening `https://my.site/?k=...` signs that browser in and takes the token out
+of the address. Signed in, the admin's menu at the top right has "Sign-in
+links": make a link for any person, see the links in use, revoke one. A link
+works any number of times, on any device, until it is revoked; revoking it also
+signs out every browser that came in by it.
+
+Anyone signed in can set a passcode for the device they are on. If that device
+is later signed out, it offers "Sign in as <name>" and asks only for the
+passcode. Five wrong tries lock the device out for fifteen minutes. A passcode
+ends with the link it came from.
+
+All of this is kept by the server function, not the page. Every write must
+carry a session; the change is logged under that session's person, whatever
+the request claims. The database holds hashes only: of link tokens, of session
+tokens, of each device's secret, and each passcode salted and stretched.
+`createSession({ endpoint, documentId })` is the browser's side, which
+`mountDocument` sets up when given an `endpoint`; pass it as `session` to
+`createSupabaseDocument` and the editor. The in-memory demo has no server, so
+its visitor is the admin.
+
+Other visitors' faces on the fields they are in are still only what each page
+says about itself: decoration, not something to rely on.
 
 The config's `title` is where a document's title starts; it is then saved with
 the document and anyone who may write can change it in the page.
 
 `.ownedBy("authors")` on a collection names a relationship to people who own
-each record. A record with owners can be changed or removed only by a visitor
-who has picked one of them; a record with none, by anyone, which is how it
-gains an owner. Without it, anyone can change anything. Like identity, this is
-kept by the page, not enforced by the database.
+each record. A record with owners can be changed or removed only by one of
+them, or the admin; a record with none, by anyone signed in, which is how it
+gains an owner. Without it, anyone signed in can change anything. The server
+function checks this on every operation, against the record as stored; the
+page only hides what would be refused.
 
 A view groups by a field of the main collection, by another collection's
 relationship to it (rows keep that relationship's order), or not at all.
@@ -171,8 +204,9 @@ await seedFromEnv({ documentId: "editorial", config, data, publicRead: true });
 The plugin only maps the host's Supabase URL and publishable key onto those two
 `import.meta.env` names. `wrap`, `renderPrefix` and `renderLabel` add site chrome.
 
-`npm test` covers identity, grouping, synchronization, retries and conflicts.
-`npm run test:db:local` runs the SQL tests on a temporary local PostgreSQL.
+`npm test` covers sessions, grouping, synchronization, retries and conflicts.
+`npm run test:db:local` runs the server function against a temporary local
+PostgreSQL: writes, sign-in links, revoking, passcodes and ownership.
 
 ## React Router / TanStack Start
 
@@ -182,8 +216,8 @@ or in browser bootstrap, pass in your Supabase client, and hold the store with
 render. Create a new keyed editor when switching document IDs. There are no API
 routes, server functions or framework-specific environment variables to copy.
 
-Supabase sessions/auth are owned by the host. Private documents require the signed-in
-client for both snapshot loading and subscription. Never ship a service secret.
+Signing in is the library's own (see above), not Supabase Auth. Never ship a
+service secret or the database URL to a browser.
 
 See ARCHITECTURE.md for concurrency semantics, access policy and limits.
 Supabase reference: https://supabase.com/docs/guides/realtime/postgres-changes

@@ -39,5 +39,5 @@ export {
   syncDocument,
 } from "./supabase";
 export { createMemoryDocument } from "./memory";
-export { createIdentity } from "./identity";
-export type { Identity } from "./identity";
+export { createSession, demoSession } from "./session";
+export type { Session, SessionState, SignInLink } from "./session";

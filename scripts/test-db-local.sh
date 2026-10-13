@@ -12,7 +12,11 @@ trap cleanup EXIT
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 initdb -D "$cluster" -A trust --no-locale --encoding=UTF8 >/dev/null
 pg_ctl -D "$cluster" -l "$cluster/server.log" -o "-p $port -h 127.0.0.1 -c wal_level=logical" start >/dev/null
-# The schema must install cleanly, twice over.
-psql -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 -f test/bootstrap.sql -f sql/schema.sql -f sql/schema.sql >/dev/null
+# The schema must install cleanly, twice over, and take away the database
+# functions an older install let browsers write through.
+psql -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 -f test/bootstrap.sql \
+  -c "create function public.dv_apply(text, jsonb) returns jsonb language sql security definer as 'select \$2'" \
+  -c "grant execute on function public.dv_apply(text, jsonb) to anon" \
+  -f sql/schema.sql -f sql/schema.sql >/dev/null
 DV_TEST_DATABASE_URL="postgres://$(id -un)@127.0.0.1:$port/postgres" npm run test:db
 # The stopped cluster and log are retained in the temporary directory for diagnosis.

@@ -5,7 +5,9 @@
 //
 // Runs wherever there is a Postgres connection: a Vercel function, a Vite dev
 // server, a test. It holds a database secret, so it never runs in a browser.
+import { createAuth, type Caller } from "./auth";
 import {
+  canEdit,
   checkValue,
   validate,
   type Change,
@@ -35,6 +37,14 @@ type RecordOp = Exclude<Operation, { kind: "title" }>;
 // Where a document's records live. `t` names a table in the library's schema.
 export type Adaptor = {
   read(tx: Tx, t: Tables, doc: Doc): Promise<Data>;
+  // One record as it is stored now, if it exists.
+  get(
+    tx: Tx,
+    t: Tables,
+    doc: Doc,
+    type: string,
+    id: string,
+  ): Promise<Entity | undefined>;
   // Applies one operation, or returns why it conflicts with what is stored.
   apply(
     tx: Tx,
@@ -46,7 +56,9 @@ export type Adaptor = {
   // Replaces all of the document's records.
   init(tx: Tx, t: Tables, doc: Doc, data: Data): Promise<void>;
 };
-export type Tables = (name: "documents" | "changes" | "facts") => string;
+export type Tables = (
+  name: "documents" | "changes" | "facts" | "links" | "sessions" | "passcodes",
+) => string;
 type Fact = {
   collection: string;
   record: string;
@@ -101,6 +113,15 @@ export const triples: Adaptor = {
           ),
       ]),
     );
+  },
+  async get(tx, t, doc, type, id) {
+    const facts = await tx.query<Fact>(
+      `select collection, record, field, value from ${t("facts")} where document_id = $1 and collection = $2 and record = $3 order by position, seq`,
+      [doc.id, type, id],
+    );
+    return facts.some((f) => f.field === "id")
+      ? fromFacts(doc.config, type, id, facts)
+      : undefined;
   },
   async init(tx, t, doc, data) {
     await tx.query(`delete from ${t("facts")} where document_id = $1`, [
@@ -259,8 +280,7 @@ export type ServerOptions = {
   schema?: string;
   adaptors?: Record<string, Adaptor>;
 };
-// `trusted` callers (a seed script) skip the document's access flags.
-export type Caller = { trusted?: boolean };
+export type { Caller, SignInLink } from "./auth";
 export function createServer(options: ServerOptions) {
   const schema = options.schema ?? "public";
   if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw Error("Invalid schema name.");
@@ -281,6 +301,15 @@ export function createServer(options: ServerOptions) {
     revision: doc.revision,
     title: doc.title ?? doc.config.title,
   });
+  const auth = createAuth(database, t, find, async (tx, doc, person) => {
+    const people = Object.keys(doc.config.collections).find(
+      (type) => doc.config.collections[type].kind === "person",
+    );
+    return (
+      !!people &&
+      !!(await adaptors[doc.adaptor].get(tx, t, doc, people, person))
+    );
+  });
   async function read(documentId: string, caller: Caller = {}) {
     return database.transaction(async (tx) => {
       const doc = await find(tx, documentId);
@@ -289,6 +318,9 @@ export function createServer(options: ServerOptions) {
       return snapshot(tx, doc);
     });
   }
+  // Anyone signed in may write a document that is open to writing, within
+  // what its owned collections allow. The change is logged under the caller's
+  // person; `actor` names the writer only for a trusted caller, who has none.
   async function apply(
     documentId: string,
     requestId: string,
@@ -303,8 +335,10 @@ export function createServer(options: ServerOptions) {
     try {
       return await database.transaction(async (tx) => {
         const doc = await find(tx, documentId, true);
-        if (!doc.public_write && !caller.trusted)
-          throw refuse("Not allowed", 403);
+        if (!caller.trusted) {
+          if (!caller.person) throw refuse("Sign in to make changes.", 401);
+          if (!doc.public_write) throw refuse("Not allowed", 403);
+        }
         const [seen] = await tx.query(
           `select 1 from ${t("changes")} where document_id = $1 and request_id = $2`,
           [documentId, requestId],
@@ -331,6 +365,22 @@ export function createServer(options: ServerOptions) {
             continue;
           }
           checkOperation(doc.config, op);
+          // Ownership is judged on the record as stored, before this change.
+          if (
+            !caller.trusted &&
+            op.kind !== "create" &&
+            doc.config.collections[op.type].owners
+          ) {
+            const row = await adaptors[doc.adaptor].get(
+              tx,
+              t,
+              doc,
+              op.type,
+              op.id,
+            );
+            if (row && !canEdit(doc.config, op.type, row, caller.person))
+              throw refuse("Only its owners may change this.", 403);
+          }
           const conflict = await adaptors[doc.adaptor].apply(
             tx,
             t,
@@ -352,7 +402,7 @@ export function createServer(options: ServerOptions) {
             revision,
             requestId,
             stamp,
-            actor,
+            caller.trusted ? actor : caller.person,
             JSON.stringify(operations),
           ],
         );
@@ -405,27 +455,61 @@ export function createServer(options: ServerOptions) {
       ]);
     });
   }
-  // The two things a page asks for, as JSON over HTTP.
+  // What a page asks for, as JSON over HTTP: a read, a write, or with an
+  // `action`, something about signing in. `session` is the token the page
+  // holds, from the Authorization header; it alone says who is asking.
+  async function act(document: string, session: string | null, body: any) {
+    const signedIn = () =>
+      database.transaction((tx) => auth.caller(tx, document, session));
+    switch (body.action) {
+      case "exchange":
+        return auth.exchange(document, body.token);
+      case "whoami":
+        return auth.who(document, session);
+      case "signout":
+        return (await auth.signOut(document, session), {});
+      case "passcode-set":
+        return auth.setPasscode(document, session, body.device, body.passcode);
+      case "passcode-signin":
+        return auth.passcodeSignIn(document, body.device, body.passcode);
+      case "passcode-forget":
+        return (await auth.forgetPasscode(document, body.device), {});
+      case "links":
+        return { links: await auth.links(document, await signedIn()) };
+      case "link-create":
+        if (typeof body.person !== "string") throw refuse("Unknown person.");
+        return auth.createLink(document, body.person, await signedIn());
+      case "link-revoke":
+        return (await auth.revokeLink(document, body.id, await signedIn()), {});
+      default:
+        throw refuse("Not found", 404);
+    }
+  }
   async function handle(request: {
     method: string;
     document: string | null;
+    session?: string | null;
     body?: any;
   }): Promise<{ status: number; body: unknown }> {
     try {
-      if (!request.document) throw refuse("Name a document");
+      const { document, session = null } = request;
+      if (!document) throw refuse("Name a document");
       if (request.method === "GET")
-        return { status: 200, body: await read(request.document) };
+        return { status: 200, body: await read(document) };
       if (request.method !== "POST") throw refuse("Not found", 404);
-      const { requestId, operations, actor } = request.body ?? {};
+      if (request.body?.action !== undefined)
+        return {
+          status: 200,
+          body: await act(document, session, request.body),
+        };
+      const { requestId, operations } = request.body ?? {};
       if (typeof requestId !== "string") throw refuse("Invalid operations");
+      const { person } = await database.transaction((tx) =>
+        auth.caller(tx, document, session),
+      );
       return {
         status: 200,
-        body: await apply(
-          request.document,
-          requestId,
-          operations,
-          typeof actor === "string" ? actor : null,
-        ),
+        body: await apply(document, requestId, operations, null, { person }),
       };
     } catch (error) {
       const status = (error as { status?: number }).status;
@@ -441,7 +525,11 @@ export function createServer(options: ServerOptions) {
   }
   // For Node servers: Vite's dev server, a Vercel function.
   async function node(
-    req: AsyncIterable<Uint8Array> & { method?: string; url?: string },
+    req: AsyncIterable<Uint8Array> & {
+      method?: string;
+      url?: string;
+      headers?: Record<string, string | string[] | undefined>;
+    },
     res: {
       statusCode: number;
       setHeader(n: string, v: string): void;
@@ -465,6 +553,9 @@ export function createServer(options: ServerOptions) {
     const result = await handle({
       method: req.method ?? "GET",
       document: new URL(req.url ?? "", "http://x").searchParams.get("document"),
+      session:
+        /^Bearer (\S+)$/.exec(String(req.headers?.authorization ?? ""))?.[1] ??
+        null,
       body,
     });
     res.statusCode = result.status;
@@ -472,7 +563,26 @@ export function createServer(options: ServerOptions) {
     res.setHeader("cache-control", "no-store");
     res.end(JSON.stringify(result.body));
   }
-  return { read, apply, provision, configure, handle, node };
+  // Trusted setup: a fresh sign-in link for the admin named in the config,
+  // as an address on `site`. This is how the admin first gets in.
+  async function adminLink(documentId: string, site: string) {
+    const link = await auth.createLink(documentId, undefined, {
+      trusted: true,
+    });
+    const url = new URL(site);
+    url.searchParams.set("k", link.token);
+    return url.href;
+  }
+  return {
+    read,
+    apply,
+    provision,
+    configure,
+    handle,
+    node,
+    auth,
+    adminLink,
+  };
 }
 // A Database on node-postgres: pass `new pg.Pool(...)`.
 export function pgDatabase(pool: {

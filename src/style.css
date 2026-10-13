@@ -276,8 +276,51 @@
 .dv-me .dv-menu {
   left: auto;
   right: 0;
+  max-height: min(70vh, 640px);
 }
 /* Other visitors' faces, left of your own. */
+.dv-read-only {
+  color: #999;
+  white-space: nowrap;
+}
+.dv-account-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 2px 6px 6px;
+  white-space: normal;
+}
+.dv-account-form input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  padding: 0;
+  background: none;
+  box-shadow: 0 1px 0 #cfd4db;
+  color: inherit;
+  font: inherit;
+}
+.dv-account-form input:focus {
+  box-shadow: 0 1px 0 #a2aab8;
+}
+.dv-account-form [role="alert"],
+.dv-account-form[role="alert"] {
+  flex-basis: 100%;
+  color: #c25357;
+}
+.dv-account-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 6px;
+}
+.dv-account-form button,
+.dv-account-link button {
+  color: #4278c0;
+}
 .dv-presence-count {
   grid-column: 2;
   grid-row: 1;

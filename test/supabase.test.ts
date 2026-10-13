@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseTransport } from "../src/supabase";
+import { demoSession } from "../src/session";
 test("Supabase adapter subscribes to its document and removes listeners on disposal", async () => {
   let callback: (payload: unknown) => void = () => {},
     statusCallback: (status: string) => void = () => {},
@@ -95,7 +96,10 @@ test("a write names the person the visitor says they are", async () => {
     },
   } as unknown as SupabaseClient;
   let me: string | undefined = "ada";
-  const transport = supabaseTransport(client, "example", undefined, () => me);
+  const transport = supabaseTransport(client, "example", undefined, {
+    ...demoSession(),
+    state: () => ({ person: me, admin: false }),
+  });
   await transport.commit("r", []);
   assert.equal(sent.actor, "ada");
   me = undefined;
