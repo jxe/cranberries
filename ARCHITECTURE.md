@@ -30,8 +30,9 @@ disagree. The library assumes it is the only writer of the records.
 
 An adaptor owns only where records live: read every record, apply one operation
 (reporting a conflict if the value the editor saw no longer holds), and replace
-all records. `triples` stores one fact per row; `blob` stores the document as
-one JSON value. Adaptors are database functions so they share that transaction.
+all records. `triples` stores one fact per row; `tables` stores a USL document
+in the tables its schema lays out. Adaptors run inside the server function's
+transaction, so they share it.
 
 `dv_changes` is the same for every adaptor. Supabase Postgres Changes streams
 its inserts; a page applies each change whose revision follows its own, and

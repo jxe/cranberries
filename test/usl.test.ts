@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { c, defineDocument } from "../src/index";
-import { documentFromUsl, SchemaError } from "../src/usl";
+import { documentFromUsl, SchemaError, tablesSql } from "../src/usl";
 
 const games = `
 model Game {
@@ -70,9 +70,40 @@ test("a .usl schema becomes the same config as defineDocument", () => {
     admin: "edelwax",
     search: true,
   });
-  assert.deepEqual(config, expected);
+  const { storage, ...rest } = config;
+  assert.deepEqual(rest, expected);
   // Stored configs are compared as JSON, so the order of keys matters too.
-  assert.equal(JSON.stringify(config), JSON.stringify(expected));
+  assert.equal(JSON.stringify(rest), JSON.stringify(expected));
+  // The records are kept in the tables USL lays out; people are not among them.
+  assert.deepEqual(storage, {
+    game: {
+      table: "Game",
+      columns: { name: "name", status: "status", description: "description" },
+      joins: {
+        authors: { table: "Game_authors", from: "game", to: "person" },
+      },
+    },
+    list: {
+      table: "List",
+      columns: { name: "name" },
+      joins: {
+        games: {
+          table: "List_games",
+          from: "list",
+          to: "game",
+          position: "games_position",
+        },
+      },
+    },
+  });
+});
+
+test("the tables' setup SQL is in the schema asked for", () => {
+  const sql = tablesSql(games, "remake");
+  assert.match(sql, /^set search_path to remake;/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "List_games"/);
+  assert.match(sql, /revoke all on remake."Game" from anon, authenticated;/);
+  assert.throws(() => tablesSql(games, "x; drop"), /Invalid schema/);
 });
 
 test("a view grouped by the other side's relationship groups by that side", () => {

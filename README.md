@@ -115,7 +115,8 @@ relationship on its `@fold` end. `Person` is the `person` collection and
 `@@editableBy(field)` its owners. In the line, `@bullet` and `@summary` are the
 options above and `@label("…")` labels the related collection. What the language
 doesn't say is given as options: `fixed` (collection keys), `admin` and
-`search`. Anything else throws a `SchemaError`. `@ovst/usl` ships TypeScript
+`search`. Anything else throws a `SchemaError`. The document's records go in
+the schema's own tables (see Storage). `@ovst/usl` ships TypeScript
 with `.ts` import paths, so a host that typechecks needs
 `"allowImportingTsExtensions": true`.
 
@@ -190,12 +191,16 @@ Every committed write is one row in `dv_changes`: its operations, time and
 writer. That log is the history and the live feed; pages receive each change
 and apply it, and re-read the document if they miss one.
 
-Where the records themselves live is up to the document's storage adaptor, three
-database functions named `dv_<adaptor>_read`, `_apply` and `_init`. The default,
-`triples`, keeps one fact per row (`dv_facts`: record, field, value). `blob`
-keeps the whole document as one JSON value. To put records in tables of your
-own, write those three functions and name the adaptor when provisioning.
-`select dv_move('document', 'triples')` moves a document between adaptors.
+Where the records themselves live is up to the document's storage adaptor
+(`src/server.ts`, `src/tables.ts`). `triples` keeps one fact per row
+(`dv_facts`: record, field, value). `tables`, which a document built with
+`documentFromUsl` gets, keeps its records in the tables USL lays out for the
+schema: a table per collection and a join table per relationship, with an
+`@ordered` end's position column. `tablesSql(source, schema)` is their setup
+SQL, safe to run again; people, who have no table in USL, are kept in
+`dv_people`. Those tables belong to one document. `server.move(document,
+adaptor)` moves a document's records to another adaptor, keeping ids, order and
+stamps.
 
 When the config in code changes, `syncDocument(secretClient, { documentId,
 config })` updates the stored copy. It is refused if existing records do not

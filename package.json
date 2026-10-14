@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit",
     "sql": "node scripts/sql.js",
     "test": "tsx --test test/*.test.ts",
-    "test:db": "tsx --test test/database.integration.ts",
+    "test:db": "tsx --test --test-concurrency=1 test/*.integration.ts",
     "test:db:local": "bash scripts/test-db-local.sh"
   },
   "peerDependencies": {

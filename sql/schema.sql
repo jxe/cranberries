@@ -64,6 +64,23 @@ alter table public.dv_facts enable row level security;
 revoke all on public.dv_facts from anon, authenticated;
 grant all on public.dv_facts to service_role;
 
+-- The people of a document whose records are in its own tables (a USL
+-- document; see src/tables.ts), which have no table for people. `seq` orders
+-- them; `modified` is the stamp the server wrote, as text, or null.
+create table if not exists public.dv_people (
+  document_id text not null references public.dv_documents(id) on delete cascade,
+  id text not null,
+  name text not null,
+  short text not null default '',
+  image text not null default '',
+  modified text,
+  seq bigint generated always as identity,
+  primary key (document_id, id)
+);
+alter table public.dv_people enable row level security;
+revoke all on public.dv_people from anon, authenticated;
+grant all on public.dv_people to service_role;
+
 -- Signing in. An admin hands a person a link; its token is kept only as a
 -- hash. A link works until it is revoked, which also ends every session and
 -- passkey that came from it. Only the server function touches these tables.

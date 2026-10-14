@@ -17,17 +17,30 @@
 //   `@label("…")` names the collection its members belong to. A view grouped
 //   by a connection that is stored on the other side groups by that side's
 //   relationship; `sort: modified` puts recent changes first.
+// - The records are kept in the tables USL lays out for a database (`tablesSql`
+//   makes them): a table per collection, keyed by `id`, and a join table per
+//   relationship. The config's `storage` says which is which; people, who
+//   have no table there, the library keeps in dv_people.
 // - What the language doesn't say (who the admin is, the search box, which
 //   collections are provisioned rather than added to in the editor) is given
 //   as options.
 
-import { compileUsl, parseUsl, type ResolvedConnection } from "@ovst/usl";
+import {
+  compileUsl,
+  layoutOf,
+  parseUsl,
+  setupSql,
+  type CheckResult,
+  type ResolvedConnection,
+  type Table,
+} from "@ovst/usl";
 import {
   defineDocument,
   type Collection,
   type Config,
   type Field,
   type GroupBy,
+  type Storage,
   type View,
 } from "./model";
 
@@ -47,14 +60,10 @@ export function documentFromUsl(
     search?: boolean;
   },
 ): Config {
-  const result = compileUsl(source);
-  if (result.diagnostics.length > 0) {
-    throw new SchemaError(
-      result.diagnostics
-        .map((d) => `${d.line}:${d.column}: ${d.code}: ${d.message}`)
-        .join("\n"),
-    );
-  }
+  const result = compiled(source);
+  const layout = layoutOf(result, { store: "database" });
+  const tableOf = (stores: string) =>
+    layout.find((table) => table.stores === stores)!;
   const models = new Map(result.models.map((m) => [m.name, m]));
   const fixedModel = (name: string) => models.get(name)?.rows === "fixed";
   const key = (name: string) =>
@@ -77,6 +86,8 @@ export function documentFromUsl(
       throw new SchemaError(
         `${model.name}: @@seed isn't supported; use @@fixed`,
       );
+    if (model.key.join() !== "id")
+      throw new SchemaError(`${model.name}: records are keyed by id only`);
   }
   const withViews = data.filter((m) => m.views.length > 0);
   if (withViews.length !== 1)
@@ -92,6 +103,7 @@ export function documentFromUsl(
   // The field each end of a connection becomes on the model that stores it.
   const stored = new Map<string, { collection: string; field: string }>();
   const connected = new Map<string, Field>();
+  const joins = new Map<string, Storage[string]["joins"][string]>();
   for (const connection of result.connections) {
     const { a, b } = connection;
     if (fixedModel(a.model) || fixedModel(b.model)) {
@@ -124,6 +136,15 @@ export function documentFromUsl(
       type: "many",
       of: key(other.model),
       ...(item?.summary ? { summary: true } : {}),
+    });
+    const table = tableOf(`${a.model}.${a.field}`);
+    const [first, second] = table.columns.map((c) => c.name);
+    joins.set(`${holder.model}.${holder.field}`, {
+      table: table.name,
+      from: holder === a ? first! : second!,
+      to: holder === a ? second! : first!,
+      ...(holder.ordered ? { position: `${holder.field}_position` } : {}),
+      ...(other.ordered ? { back: `${other.field}_position` } : {}),
     });
     stored.set(`${a.model}.${a.field}`, {
       collection: key(holder.model),
@@ -161,6 +182,7 @@ export function documentFromUsl(
   };
 
   const collections: Record<string, Collection> = {};
+  const storage: Storage = {};
   if (usesPerson) collections.person = collection("Person", {});
   for (const model of data) {
     const fields: Record<string, Field> = {};
@@ -186,6 +208,23 @@ export function documentFromUsl(
     if (fields.name?.type !== "text")
       throw new SchemaError(`${model.name} needs a \`name Text\` field`);
     collections[key(model.name)] = collection(model.name, fields);
+    const column = (name: string) =>
+      model.fields.find((f) => f.name === name)?.column ?? name;
+    storage[key(model.name)] = {
+      table: tableOf(model.name).name,
+      columns: Object.fromEntries(
+        Object.entries(fields).flatMap(([name, f]) =>
+          f.type === "many" ? [] : [[name, column(name)]],
+        ),
+      ),
+      joins: Object.fromEntries(
+        Object.entries(fields).flatMap(([name, f]) =>
+          f.type === "many"
+            ? [[name, joins.get(`${model.name}.${name}`)!]]
+            : [],
+        ),
+      ),
+    };
   }
 
   const views: View[] = main.views.map((view) => {
@@ -214,7 +253,44 @@ export function documentFromUsl(
     views,
     ...(options.search ? { search: true } : {}),
     ...(options.admin ? { admin: options.admin } : {}),
+    storage,
   });
+}
+
+/**
+ * Setup SQL for the tables a `.usl` document's records are kept in, in
+ * `schema`. Like the library's own schema.sql, it creates only what is
+ * missing, so it is safe to run again; only the server function reads or
+ * writes the tables.
+ */
+export function tablesSql(source: string, schema = "public"): string {
+  if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw Error("Invalid schema name.");
+  const tables: Table[] = layoutOf(compiled(source), { store: "database" });
+  const name = (table: Table) =>
+    `${schema}."${table.name.replaceAll('"', '""')}"`;
+  return [
+    `set search_path to ${schema};`,
+    setupSql(tables, "postgres").trimEnd(),
+    ...tables.map(
+      (table) =>
+        `alter table ${name(table)} enable row level security;\n` +
+        `revoke all on ${name(table)} from anon, authenticated;\n` +
+        `grant all on ${name(table)} to service_role;`,
+    ),
+    "reset search_path;",
+  ].join("\n\n");
+}
+
+function compiled(source: string): CheckResult {
+  const result = compileUsl(source);
+  if (result.diagnostics.length > 0) {
+    throw new SchemaError(
+      result.diagnostics
+        .map((d) => `${d.line}:${d.column}: ${d.code}: ${d.message}`)
+        .join("\n"),
+    );
+  }
+  return result;
 }
 
 /** The end whose rows hold an n:m connection: the `@fold` end. */

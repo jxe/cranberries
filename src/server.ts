@@ -5,7 +5,9 @@
 //
 // Runs wherever there is a Postgres connection: a Vercel function, a Vite dev
 // server, a test. It holds a database secret, so it never runs in a browser.
+import { isDeepStrictEqual } from "node:util";
 import { createAuth, type Caller } from "./auth";
+import { tables } from "./tables";
 import {
   canEdit,
   checkValue,
@@ -34,7 +36,8 @@ export type Doc = {
   public_write: boolean;
 };
 type RecordOp = Exclude<Operation, { kind: "title" }>;
-// Where a document's records live. `t` names a table in the library's schema.
+// Where a document's records live. `t` names a table in the library's schema,
+// and `t.schema` is that schema.
 export type Adaptor = {
   read(tx: Tx, t: Tables, doc: Doc): Promise<Data>;
   // One record as it is stored now, if it exists.
@@ -56,16 +59,17 @@ export type Adaptor = {
   // Replaces all of the document's records.
   init(tx: Tx, t: Tables, doc: Doc, data: Data): Promise<void>;
 };
-export type Tables = (
+export type Tables = ((
   name:
     | "documents"
     | "changes"
     | "facts"
+    | "people"
     | "links"
     | "sessions"
     | "passkeys"
     | "challenges",
-) => string;
+) => string) & { schema: string };
 type Fact = {
   collection: string;
   record: string;
@@ -294,8 +298,14 @@ export type { Caller, SignInLink } from "./auth";
 export function createServer(options: ServerOptions) {
   const schema = options.schema ?? "public";
   if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw Error("Invalid schema name.");
-  const t: Tables = (name) => `${schema}.dv_${name}`;
-  const adaptors: Record<string, Adaptor> = { triples, ...options.adaptors };
+  const t: Tables = Object.assign((name: string) => `${schema}.dv_${name}`, {
+    schema,
+  });
+  const adaptors: Record<string, Adaptor> = {
+    triples,
+    tables,
+    ...options.adaptors,
+  };
   const { database } = options;
   async function find(tx: Tx, id: string, lock = false) {
     const [doc] = await tx.query<Doc & { revision: string }>(
@@ -426,7 +436,9 @@ export function createServer(options: ServerOptions) {
       };
     }
   }
-  // Trusted setup. An existing document is left untouched.
+  // Trusted setup. An existing document is left untouched. A document
+  // described in USL keeps its records in its own tables (see tables.ts),
+  // which must be set up first with `tablesSql`.
   async function provision(setup: {
     documentId: string;
     config: Config;
@@ -442,7 +454,7 @@ export function createServer(options: ServerOptions) {
         [
           setup.documentId,
           JSON.stringify(setup.config),
-          setup.adaptor ?? "triples",
+          setup.adaptor ?? (setup.config.storage ? "tables" : "triples"),
           setup.publicRead ?? false,
           setup.publicWrite ?? false,
         ],
@@ -462,6 +474,28 @@ export function createServer(options: ServerOptions) {
         documentId,
         JSON.stringify(config),
       ]);
+    });
+  }
+  // Trusted setup. Moves a document's records to another adaptor, with their
+  // ids, order and stamps, and stores `config` with them when given. The old
+  // adaptor's copy is left where it was. False when they are there already.
+  async function move(documentId: string, adaptor: string, config?: Config) {
+    if (!adaptors[adaptor]) throw refuse(`No ${adaptor} adaptor`);
+    return database.transaction(async (tx) => {
+      const doc = await find(tx, documentId, true);
+      if (doc.adaptor === adaptor) return false;
+      const data = await adaptors[doc.adaptor].read(tx, t, doc);
+      const moved = { ...doc, adaptor, config: config ?? doc.config };
+      validate(moved.config, data);
+      await adaptors[adaptor].init(tx, t, moved, data);
+      // Nothing is moved unless it all reads back the same.
+      if (!isDeepStrictEqual(await adaptors[adaptor].read(tx, t, moved), data))
+        throw Error("The moved records read back differently.");
+      await tx.query(
+        `update ${t("documents")} set adaptor = $2, config = $3 where id = $1`,
+        [documentId, adaptor, JSON.stringify(moved.config)],
+      );
+      return true;
     });
   }
   // What a page asks for, as JSON over HTTP: a read, a write, or with an
@@ -611,6 +645,7 @@ export function createServer(options: ServerOptions) {
     apply,
     provision,
     configure,
+    move,
     handle,
     node,
     auth,

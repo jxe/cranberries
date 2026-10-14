@@ -27,6 +27,7 @@ export type {
   View,
   Snapshot,
   Operation,
+  Storage,
   Value,
 } from "./model";
 export { DocumentStore } from "./store";
@@ -41,4 +42,4 @@ export {
 export { createMemoryDocument } from "./memory";
 export { createSession, demoSession } from "./session";
 export type { Session, SessionState, SignInLink } from "./session";
-export { documentFromUsl, SchemaError } from "./usl";
+export { documentFromUsl, tablesSql, SchemaError } from "./usl";

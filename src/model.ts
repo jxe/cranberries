@@ -36,7 +36,32 @@ export type Config = {
   search?: boolean;
   // The person who hands out sign-in links, and may change any record.
   admin?: string;
+  // Set for a document described in USL: the tables its records are in.
+  storage?: Storage;
 };
+// Where each collection's records are in a USL document's own tables (see
+// usl.ts and tables.ts). People have no table there; the library keeps them.
+export type Storage = Record<
+  string,
+  {
+    table: string;
+    // The column of each text or choice field.
+    columns: Record<string, string>;
+    // The join table of each relationship: `from` holds this record's id and
+    // `to` the member's. `position` orders the members when the relationship
+    // is @ordered; `back` orders the other way, when that end is.
+    joins: Record<
+      string,
+      {
+        table: string;
+        from: string;
+        to: string;
+        position?: string;
+        back?: string;
+      }
+    >;
+  }
+>;
 // Group by a field of the main collection, by another collection's relationship
 // to it (rows keep that relationship's order), or omit groupBy for a flat view.
 export type GroupBy = string | { collection: string; field: string };
@@ -128,6 +153,7 @@ export function defineDocument(input: ConfigInput): Config {
     ),
     ...(input.search ? { search: true } : {}),
     ...(input.admin ? { admin: input.admin } : {}),
+    ...(input.storage ? { storage: input.storage } : {}),
   };
   const fields = config.collections[main]?.fields;
   if (!fields || !config.views.length || !config.line.length)
