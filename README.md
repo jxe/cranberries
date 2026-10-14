@@ -250,6 +250,12 @@ import { seedFromEnv } from "cranberries/seed";
 await seedFromEnv({ documentId: "editorial", config, data, publicRead: true });
 ```
 
+The server function imports `cranberries/server`, which is bundled into
+`dist/server.js` (with `@ovst/usl`) when the package is installed from GitHub,
+since hosts such as Vercel do not load TypeScript from `node_modules`. Vite's
+dev server uses the source. With a local `npm link`, run `npm run build` here
+after changing server code.
+
 `seedFromEnv` sets up the database (`setupDatabase`, as `cranberries setup`
 does), then creates the document if it is missing and otherwise syncs its
 config.

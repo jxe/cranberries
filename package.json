@@ -1,6 +1,6 @@
 {
   "name": "cranberries",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "exports": {
@@ -8,7 +8,11 @@
     "./react": "./src/react.tsx",
     "./app": "./src/app.tsx",
     "./seed": "./src/seed.ts",
-    "./server": "./src/server.ts",
+    "./server": {
+      "types": "./src/server.ts",
+      "development": "./src/server.ts",
+      "default": "./dist/server.js"
+    },
     "./vite": {
       "types": "./src/vite.d.ts",
       "default": "./src/vite.js"
@@ -20,11 +24,14 @@
   },
   "files": [
     "bin",
+    "dist",
     "src",
     "sql",
     "scripts/sql.js"
   ],
   "scripts": {
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node22 --external:pg --external:@simplewebauthn/server --outfile=dist/server.js",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "sql": "node scripts/sql.js",
     "test": "tsx --test test/*.test.ts",
@@ -33,10 +40,10 @@
   },
   "peerDependencies": {
     "@supabase/supabase-js": "^2.0.0",
+    "pg": "^8.0.0",
     "react": ">=18",
     "react-dom": ">=18",
-    "vite": ">=5",
-    "pg": "^8.0.0"
+    "vite": ">=5"
   },
   "peerDependenciesMeta": {
     "vite": {
@@ -52,6 +59,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.28.2",
     "pg": "^8.23.1",
     "prettier": "^3.9.9",
     "react": "19.2.6",
