@@ -27,7 +27,6 @@ export type {
   View,
   Snapshot,
   Operation,
-  Storage,
   Value,
 } from "./model";
 export { DocumentStore } from "./store";

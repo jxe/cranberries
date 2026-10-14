@@ -19,8 +19,9 @@
 //   relationship; `sort: modified` puts recent changes first.
 // - The records are kept in the tables USL lays out for a database (`tablesSql`
 //   makes them): a table per collection, keyed by `id`, and a join table per
-//   relationship. The config's `storage` says which is which; people, who
-//   have no table there, the library keeps in dv_people.
+//   relationship. The config keeps the source as `usl`, so the server knows
+//   the tables from it (`storageOf`); people, who have no table there, the
+//   library keeps in dv_people.
 // - What the language doesn't say (who the admin is, the search box, which
 //   collections are provisioned rather than added to in the editor) is given
 //   as options.
@@ -28,7 +29,6 @@
 import {
   compileUsl,
   layoutOf,
-  parseUsl,
   setupSql,
   type CheckResult,
   type ResolvedConnection,
@@ -40,7 +40,6 @@ import {
   type Config,
   type Field,
   type GroupBy,
-  type Storage,
   type View,
 } from "./model";
 
@@ -61,9 +60,6 @@ export function documentFromUsl(
   },
 ): Config {
   const result = compiled(source);
-  const layout = layoutOf(result, { store: "database" });
-  const tableOf = (stores: string) =>
-    layout.find((table) => table.stores === stores)!;
   const models = new Map(result.models.map((m) => [m.name, m]));
   const fixedModel = (name: string) => models.get(name)?.rows === "fixed";
   const key = (name: string) =>
@@ -103,7 +99,6 @@ export function documentFromUsl(
   // The field each end of a connection becomes on the model that stores it.
   const stored = new Map<string, { collection: string; field: string }>();
   const connected = new Map<string, Field>();
-  const joins = new Map<string, Storage[string]["joins"][string]>();
   for (const connection of result.connections) {
     const { a, b } = connection;
     if (fixedModel(a.model) || fixedModel(b.model)) {
@@ -137,15 +132,6 @@ export function documentFromUsl(
       of: key(other.model),
       ...(item?.summary ? { summary: true } : {}),
     });
-    const table = tableOf(`${a.model}.${a.field}`);
-    const [first, second] = table.columns.map((c) => c.name);
-    joins.set(`${holder.model}.${holder.field}`, {
-      table: table.name,
-      from: holder === a ? first! : second!,
-      to: holder === a ? second! : first!,
-      ...(holder.ordered ? { position: `${holder.field}_position` } : {}),
-      ...(other.ordered ? { back: `${other.field}_position` } : {}),
-    });
     stored.set(`${a.model}.${a.field}`, {
       collection: key(holder.model),
       field: holder.field,
@@ -162,36 +148,30 @@ export function documentFromUsl(
     const field = connected.get(`${main.name}.${item.field}`);
     if (item.label && field?.type === "many") labels.set(field.of, item.label);
   }
-  const { owners, order } = declared(source);
   const fixed = new Set(options.fixed ?? []);
   const collection = (
     name: string,
     fields: Record<string, Field>,
   ): Collection => {
     const k = key(name);
-    const owner = owners.get(name);
+    const owner = models.get(name)?.editableBy;
     if (owner && owner.length > 1)
       throw new SchemaError(`${name}: @@editableBy takes one field`);
     return {
       ...(name === "Person" ? { kind: "person" as const } : {}),
       label: labels.get(k) ?? lowerFirst(name),
       ...(fixed.has(k) ? { fixed: true } : {}),
-      ...(owner ? { owners: owner[0] } : {}),
+      ...(owner?.length ? { owners: owner[0] } : {}),
       fields,
     };
   };
 
   const collections: Record<string, Collection> = {};
-  const storage: Storage = {};
   if (usesPerson) collections.person = collection("Person", {});
   for (const model of data) {
     const fields: Record<string, Field> = {};
-    const written = order.get(model.name) ?? [];
-    const place = (name: string) =>
-      written.includes(name) ? written.indexOf(name) : written.length;
-    for (const field of [...model.fields].sort(
-      (x, y) => place(x.name) - place(y.name),
-    )) {
+    // The checker keeps fields in the order they're written.
+    for (const field of model.fields) {
       const link = connected.get(`${model.name}.${field.name}`);
       if (link) fields[field.name] = link;
       else if (field.origin !== "declared") continue;
@@ -208,23 +188,6 @@ export function documentFromUsl(
     if (fields.name?.type !== "text")
       throw new SchemaError(`${model.name} needs a \`name Text\` field`);
     collections[key(model.name)] = collection(model.name, fields);
-    const column = (name: string) =>
-      model.fields.find((f) => f.name === name)?.column ?? name;
-    storage[key(model.name)] = {
-      table: tableOf(model.name).name,
-      columns: Object.fromEntries(
-        Object.entries(fields).flatMap(([name, f]) =>
-          f.type === "many" ? [] : [[name, column(name)]],
-        ),
-      ),
-      joins: Object.fromEntries(
-        Object.entries(fields).flatMap(([name, f]) =>
-          f.type === "many"
-            ? [[name, joins.get(`${model.name}.${name}`)!]]
-            : [],
-        ),
-      ),
-    };
   }
 
   const views: View[] = main.views.map((view) => {
@@ -253,8 +216,28 @@ export function documentFromUsl(
     views,
     ...(options.search ? { search: true } : {}),
     ...(options.admin ? { admin: options.admin } : {}),
-    storage,
+    usl: source,
   });
+}
+
+// The tables of a document built from USL, and the model each collection is.
+export type UslStorage = { tables: Table[]; models: Record<string, string> };
+const storages = new Map<string, UslStorage>();
+/** Where a USL document's records are kept, from the source in its config. */
+export function storageOf(config: Config): UslStorage {
+  if (!config.usl) throw Error("The config has no USL schema.");
+  let storage = storages.get(config.usl);
+  if (!storage) {
+    const result = compiled(config.usl);
+    const tables = layoutOf(result, { store: "database" });
+    const models = Object.fromEntries(
+      result.models
+        .filter((m) => m.rows !== "fixed" && m.name !== "Person")
+        .map((m) => [m.table ?? lowerFirst(m.name), m.name]),
+    );
+    storages.set(config.usl, (storage = { tables, models }));
+  }
+  return storage;
 }
 
 /**
@@ -265,19 +248,17 @@ export function documentFromUsl(
  */
 export function tablesSql(source: string, schema = "public"): string {
   if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw Error("Invalid schema name.");
-  const tables: Table[] = layoutOf(compiled(source), { store: "database" });
+  const tables = layoutOf(compiled(source), { store: "database" });
   const name = (table: Table) =>
     `${schema}."${table.name.replaceAll('"', '""')}"`;
   return [
-    `set search_path to ${schema};`,
-    setupSql(tables, "postgres").trimEnd(),
+    setupSql(tables, "postgres", { schema }).trimEnd(),
     ...tables.map(
       (table) =>
         `alter table ${name(table)} enable row level security;\n` +
         `revoke all on ${name(table)} from anon, authenticated;\n` +
         `grant all on ${name(table)} to service_role;`,
     ),
-    "reset search_path;",
   ].join("\n\n");
 }
 
@@ -306,29 +287,4 @@ function storedEnd(connection: ResolvedConnection) {
   throw new SchemaError(
     `${connection.ends.join(" <-> ")}: mark the end that holds it with @fold`,
   );
-}
-
-/**
- * Each model's `@@editableBy` fields, which the checker validates but doesn't
- * resolve, and its fields in the order they're written, which it doesn't keep.
- */
-function declared(source: string) {
-  const owners = new Map<string, string[]>();
-  const order = new Map<string, string[]>();
-  for (const declaration of parseUsl(source).file?.declarations ?? []) {
-    if (declaration.kind !== "model") continue;
-    order.set(
-      declaration.name,
-      declaration.members.flatMap((m) => (m.kind === "field" ? [m.name] : [])),
-    );
-    for (const member of declaration.members) {
-      if (member.kind !== "modelAttribute" || member.name !== "editableBy")
-        continue;
-      owners.set(
-        declaration.name,
-        member.args.flatMap((arg) => (arg.kind === "ident" ? [arg.name] : [])),
-      );
-    }
-  }
-  return { owners, order };
 }

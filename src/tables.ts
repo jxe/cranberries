@@ -1,8 +1,9 @@
 // The tables adaptor: a document described in USL keeps its records in the
 // tables USL lays out for it (usl.ts makes them with `tablesSql`), one row per
-// record and one join-table row per relationship member. The config's
-// `storage` names them. People have no table in USL, so they are kept here in
-// dv_people, one row per person of the document.
+// record and one join-table row per relationship member. The layout of the
+// config's `usl` says which columns hold each field (`Table.fields`) and the
+// sides of each join table (`Table.ends`). People have no table in USL, so
+// they are kept here in dv_people, one row per person of the document.
 //
 // A collection reads in the order its records were made (`created`); so do
 // the members of a relationship, unless it is @ordered, when its position
@@ -11,7 +12,8 @@
 //
 // The tables hold one document's records, so no two documents may share them.
 import type { Adaptor, Doc, Tables, Tx } from "./server";
-import type { Config, Data, Entity, Field, Storage } from "./model";
+import type { Config, Data, Entity, Field } from "./model";
+import { storageOf } from "./usl";
 
 const people = ["name", "short", "image"];
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
@@ -23,16 +25,65 @@ const fallback = (d: Field) =>
     ? []
     : (d.default ?? (d.type === "choice" ? d.options[0].name : ""));
 
-type Place = Storage[string];
+// Where one collection's records are: its table, the column of each text or
+// choice field, and the join table of each relationship, whose `from` column
+// holds this record's id and `to` the member's. `position` orders the members
+// when the relationship is @ordered; `back` orders the other way, when that
+// end is.
+type Join = {
+  table: string;
+  from: string;
+  to: string;
+  position?: string;
+  back?: string;
+};
+type Place = {
+  table: string;
+  columns: Record<string, string>;
+  joins: Record<string, Join>;
+};
+const places = new WeakMap<object, Map<string, Place>>();
 // The table of a collection, or nothing for the document's people.
 function placeOf(config: Config, type: string): Place | undefined {
-  const place = config.storage?.[type];
-  if (place) return place;
-  if (config.collections[type]?.kind !== "person")
-    throw Error(`No table for ${type}`);
-  for (const field of Object.keys(config.collections[type].fields))
-    if (!people.includes(field)) throw Error(`People have no ${field}`);
-  return undefined;
+  const collection = config.collections[type];
+  if (collection?.kind === "person") {
+    for (const field of Object.keys(collection.fields))
+      if (!people.includes(field)) throw Error(`People have no ${field}`);
+    return undefined;
+  }
+  const { tables, models } = storageOf(config);
+  let known = places.get(tables);
+  if (!known) places.set(tables, (known = new Map()));
+  if (known.has(type)) return known.get(type);
+  const model = models[type];
+  const table = tables.find((t) => t.stores === model);
+  if (!table || !collection) throw Error(`No table for ${type}`);
+  const place: Place = { table: table.name, columns: {}, joins: {} };
+  for (const [name, d] of Object.entries(collection.fields)) {
+    if (d.type !== "many") {
+      const field = table.fields.find((f) => f.name === name);
+      if (field?.columns.length !== 1) throw Error(`No column for ${name}`);
+      place.columns[name] = field.columns[0];
+      continue;
+    }
+    const join = tables.find((t) =>
+      t.ends?.some((e) => e.model === model && e.field === name),
+    );
+    const [mine, other] =
+      join?.ends?.[0].model === model && join.ends[0].field === name
+        ? join.ends
+        : [join?.ends?.[1], join?.ends?.[0]];
+    if (!join || !mine || !other) throw Error(`No join table for ${name}`);
+    place.joins[name] = {
+      table: join.name,
+      from: mine.columns[0],
+      to: other.columns[0],
+      ...(mine.position ? { position: mine.position } : {}),
+      ...(other.position ? { back: other.position } : {}),
+    };
+  }
+  known.set(type, place);
+  return place;
 }
 
 // The records of one collection, or the one record `id`.
@@ -206,10 +257,7 @@ async function touch(
 
 // Every table the document's records are in.
 const tablesOf = (config: Config) =>
-  Object.values(config.storage ?? {}).flatMap((place) => [
-    place.table,
-    ...Object.values(place.joins).map((join) => join.table),
-  ]);
+  storageOf(config).tables.map((table) => table.name);
 
 export const tables: Adaptor = {
   async read(tx, t, doc) {
@@ -222,7 +270,6 @@ export const tables: Adaptor = {
     return (await rows(tx, t, doc, type, id))[0];
   },
   async init(tx, t, doc, data) {
-    if (!doc.config.storage) throw Error("No storage in the config");
     const mine = tablesOf(doc.config);
     const others = await tx.query<{ id: string; config: Config }>(
       `select id, config from ${t("documents")} where adaptor = 'tables' and id <> $1`,
@@ -303,7 +350,7 @@ export const tables: Adaptor = {
       for (const [type, c] of Object.entries(doc.config.collections))
         for (const [name, d] of Object.entries(c.fields))
           if (d.type === "many" && d.of === op.type) {
-            const join = doc.config.storage![type].joins[name];
+            const join = placeOf(doc.config, type)!.joins[name];
             await tx.query(
               `delete from ${t.schema}.${quote(join.table)} where ${quote(join.to)} = $1`,
               [op.id],

@@ -454,7 +454,7 @@ export function createServer(options: ServerOptions) {
         [
           setup.documentId,
           JSON.stringify(setup.config),
-          setup.adaptor ?? (setup.config.storage ? "tables" : "triples"),
+          setup.adaptor ?? (setup.config.usl ? "tables" : "triples"),
           setup.publicRead ?? false,
           setup.publicWrite ?? false,
         ],
