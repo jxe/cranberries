@@ -15,7 +15,11 @@
     },
     "./style.css": "./src/style.css"
   },
+  "bin": {
+    "cranberries": "./bin/cranberries.js"
+  },
   "files": [
+    "bin",
     "src",
     "sql",
     "scripts/sql.js"
@@ -31,10 +35,14 @@
     "@supabase/supabase-js": "^2.0.0",
     "react": ">=18",
     "react-dom": ">=18",
-    "vite": ">=5"
+    "vite": ">=5",
+    "pg": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {
+      "optional": true
+    },
+    "pg": {
       "optional": true
     }
   },
@@ -48,13 +56,13 @@
     "prettier": "^3.9.9",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.3"
   },
   "dependencies": {
     "@ovst/usl": "^0.2.0",
     "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.3"
+    "@simplewebauthn/server": "^13.3.3",
+    "tsx": "^4.23.15"
   }
 }

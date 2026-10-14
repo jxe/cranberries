@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { createServer, pgDatabase } from "../src/server";
 import { documentFromUsl } from "../src/usl";
+import { setupDatabase } from "../src/setup";
 import type { Data, Entity, Operation } from "../src/model";
 const connectionString = process.env.DV_TEST_DATABASE_URL;
 if (!connectionString)
@@ -299,10 +300,10 @@ test("a document's records move from facts to tables unchanged", async () => {
   assert.deepEqual(await server.read(id, trusted), before);
 });
 
-test("install makes the library's tables, and provision the schema's, in a schema of their own", async () => {
+test("setup makes the library's tables and the schema's, in a schema of their own, and again", async () => {
   const own = createServer({ database: pgDatabase(pool), schema: "own" });
-  await own.install();
-  await own.install();
+  await setupDatabase({ url: connectionString, schema: "own" });
+  await setupDatabase({ url: connectionString, schema: "own", usl });
   id = "";
   assert.equal(
     await own.provision({ documentId: "games", config, data }),

@@ -439,28 +439,6 @@ export function createServer(options: ServerOptions) {
       };
     }
   }
-  // Trusted setup: makes or brings up to date the library's own tables in its
-  // schema (sql/schema.sql). Safe to run again; run it before the rest.
-  async function install() {
-    const { readFile } = await import("node:fs/promises");
-    const sql = await readFile(
-      new URL("../sql/schema.sql", import.meta.url),
-      "utf8",
-    );
-    await database.transaction(async (tx) => {
-      if (schema !== "public")
-        await tx.query(
-          `create schema if not exists ${schema};
-           grant usage on schema ${schema} to anon, authenticated, service_role;`,
-        );
-      await tx.query(
-        sql
-          .replaceAll("public.", `${schema}.`)
-          .replaceAll("schemaname='public'", `schemaname='${schema}'`)
-          .replaceAll("nspname='public'", `nspname='${schema}'`),
-      );
-    });
-  }
   // Trusted setup. An existing document is left untouched. A document
   // described in USL keeps its records in its own tables (see tables.ts),
   // which this makes when they are missing, as configure and move do.
@@ -671,7 +649,6 @@ export function createServer(options: ServerOptions) {
   return {
     read,
     apply,
-    install,
     provision,
     configure,
     move,

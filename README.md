@@ -38,10 +38,17 @@ const store = createSupabaseDocument({ client, documentId: 'editorial', config, 
 root.render(<DocumentEditor store={store} />);
 ```
 
-Run `sql/schema.sql` on the database, then create the document from a trusted
-seed script (see below). The schema file declares everything the library needs
-and can be run again safely. The numbered files beside it are migrations for
-upgrading an older install's data; a new install does not need them. Every record has a string `id`, a text `name`, and the
+A site keeps no SQL of its own. `npx cranberries setup` sets up its database:
+the library's tables and access rules (`sql/schema.sql`), and, for a document
+described in USL, the tables its `lib/schema.usl` lays out. It reads
+`DATABASE_URL` from the environment or `.env.local`, creates only what is
+missing, and is safe to run again. `npx cranberries sql` prints the same SQL,
+for pasting into the Supabase SQL editor. Both take `--usl <path>` and
+`--schema <name>` (default `public`), or read them from `"cranberries": {
+"usl", "schema" }` in the site's package.json. Then create the document from a
+trusted seed script (see below), which sets up first too. The numbered files
+beside `sql/schema.sql` are migrations for upgrading an older install's data;
+a new install does not need them. Every record has a string `id`, a text `name`, and the
 fields of its collection. Relationships contain IDs, not names.
 
 ## Configuration
@@ -207,13 +214,10 @@ When the config in code changes, `syncDocument(secretClient, { documentId,
 config })` updates the stored copy. It is refused if existing records do not
 fit; give a new field a `default` and they do.
 
-`server.install()` makes or updates the library's own tables, from a seed
-script with a database URL; it is safe to run again. To keep them apart from
-an existing application's, install into a schema of their own:
-`createServer({ schema: "myschema", ... }).install()`, or `npm run sql --
-myschema schema | psql ...` for the SQL itself. Then add
-that schema to the project's exposed schemas, and pass `schema: "myschema"` to
-`createSupabaseDocument`, `readDocument`, `mountDocument` and the seed helpers.
+To keep the library's tables apart from an existing application's, set them
+up in a schema of their own (`--schema myschema`), add that schema to the
+project's exposed schemas, and pass `schema: "myschema"` to `createServer`,
+`createSupabaseDocument`, `readDocument`, `mountDocument` and `seedFromEnv`.
 
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
 `provisionDocument(secretClient, {...})` creates a document from a seed script.
@@ -242,12 +246,14 @@ await mountDocument(document.getElementById("root")!, {
   requireSupabase: import.meta.env.PROD,
 });
 
-// scripts/seed.ts, run with the secret key in the environment
+// scripts/seed.ts, run with DATABASE_URL in the environment
 import { seedFromEnv } from "cranberries/seed";
 await seedFromEnv({ documentId: "editorial", config, data, publicRead: true });
 ```
 
-`seedFromEnv` creates the document if it is missing and otherwise syncs its config.
+`seedFromEnv` sets up the database (`setupDatabase`, as `cranberries setup`
+does), then creates the document if it is missing and otherwise syncs its
+config.
 
 The plugin only maps the host's Supabase URL and publishable key onto those two
 `import.meta.env` names. `wrap`, `renderPrefix` and `renderLabel` add site chrome.

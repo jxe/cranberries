@@ -34,6 +34,14 @@ all records. `triples` stores one fact per row; `tables` stores a USL document
 in the tables its schema lays out. Adaptors run inside the server function's
 transaction, so they share it.
 
+A site keeps no SQL. `cranberries setup` (src/setup.ts, src/cli.ts) applies
+the library's `sql/schema.sql` in the site's Postgres schema and the setup SQL
+`@ovst/usl` writes for the site's `.usl`, in one transaction; both create only
+what is missing. The tables adaptor also makes missing tables when a document
+is provisioned, configured or moved to it, so a schema that gains a model
+needs no separate step. Changing or dropping a column is a migration of its
+own.
+
 `dv_changes` is the same for every adaptor. Supabase Postgres Changes streams
 its inserts; a page applies each change whose revision follows its own, and
 re-reads the document when it sees a gap. Subscribe first, then refresh after
