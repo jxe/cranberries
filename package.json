@@ -53,8 +53,8 @@
     "vite": "^8.3.3"
   },
   "dependencies": {
+    "@ovst/usl": "^0.1.0",
     "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.3",
-    "@ovst/usl": "^0.1.0"
+    "@simplewebauthn/server": "^13.3.3"
   }
 }
