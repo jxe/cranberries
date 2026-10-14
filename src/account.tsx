@@ -55,6 +55,12 @@ function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Closed by our own hand rather than by the dialog's close event, which
+  // Chrome does not always send.
+  const finish = () => {
+    ref.current?.close();
+    onClose();
+  };
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
@@ -64,18 +70,19 @@ function Dialog({
       ref={ref}
       className="dv-dialog"
       aria-label={title}
-      onClose={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          finish();
+        }
+      }}
       onClick={(e) => {
-        if (e.target === ref.current) ref.current.close();
+        if (e.target === ref.current) finish();
       }}
     >
       <span className="dv-dialog-head">
         <h2>{title}</h2>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={() => ref.current?.close()}
-        >
+        <button type="button" aria-label="Close" onClick={finish}>
           ×
         </button>
       </span>
@@ -102,10 +109,16 @@ function Links({
       .then(async () => setLinks(await session.links()))
       .catch((e) => setError((e as Error).message));
   };
-  useEffect(() => run(async () => {}), []);
+  useEffect(() => {
+    run(async () => {});
+  }, []);
   // A fresh link is brought into view, above the long list of people.
   const fresh = useRef<HTMLSpanElement>(null);
-  useEffect(() => fresh.current?.scrollIntoView({ block: "nearest" }), [made]);
+  // Braces matter: browsers now return a promise from scrollIntoView, and an
+  // effect may return only its cleanup.
+  useEffect(() => {
+    void fresh.current?.scrollIntoView({ block: "nearest" });
+  }, [made]);
   const name = (id: string) =>
     String(people.find((p) => p.id === id)?.name ?? id);
   const live = (links ?? []).filter((l) => !l.revoked_at);
