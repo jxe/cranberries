@@ -210,9 +210,9 @@ schema)` prints that SQL); people, who have no table in USL, are kept in
 adaptor)` moves a document's records to another adaptor, keeping ids, order and
 stamps.
 
-When the config in code changes, `syncDocument(secretClient, { documentId,
-config })` updates the stored copy. It is refused if existing records do not
-fit; give a new field a `default` and they do.
+When the config in code changes, `seedFromEnv` (or `server.configure`)
+updates the stored copy. It is refused if existing records do not fit; give a
+new field a `default` and they do.
 
 To keep the library's tables apart from an existing application's, set them
 up in a schema of their own (`--schema myschema`), add that schema to the
@@ -220,7 +220,6 @@ project's exposed schemas, and pass `schema: "myschema"` to `createServer`,
 `createSupabaseDocument`, `readDocument`, `mountDocument` and `seedFromEnv`.
 
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
-`provisionDocument(secretClient, {...})` creates a document from a seed script.
 
 `useDocument(store)` exposes `{data, revision, status, error, pending}` for custom
 surrounding UI. `store.set`, `store.link`, `store.create`, and `store.remove`

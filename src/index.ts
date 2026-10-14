@@ -35,8 +35,6 @@ export {
   createSupabaseDocument,
   readDocument,
   loadDocument,
-  provisionDocument,
-  syncDocument,
 } from "./supabase";
 export { createMemoryDocument } from "./memory";
 export { createSession, demoSession } from "./session";

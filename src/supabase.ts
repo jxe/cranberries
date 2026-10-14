@@ -1,11 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  validate,
-  type Change,
-  type Config,
-  type Data,
-  type Snapshot,
-} from "./model";
+import { type Change, type Config, type Snapshot } from "./model";
 import { DocumentStore, type Transport } from "./store";
 import type { Session } from "./session";
 // The tables live in `public` unless the migrations were installed into
@@ -236,42 +230,4 @@ export function createSupabaseDocument(options: {
   store.me = () => session?.state().person;
   store.readOnly = () => !session?.state().person;
   return store;
-}
-// Trusted setup only: call with a secret-key client from a seed script, never a browser.
-// An existing document is left untouched. Records go to the triple store unless
-// another storage adaptor is named.
-export async function provisionDocument(
-  client: SupabaseClient,
-  options: {
-    documentId: string;
-    config: Config;
-    data: Data;
-    publicRead?: boolean;
-    publicWrite?: boolean;
-    schema?: string;
-    adaptor?: string;
-  },
-) {
-  validate(options.config, options.data);
-  const { error } = await within(client, options.schema).rpc("dv_provision", {
-    document_id: options.documentId,
-    config: options.config,
-    data: options.data,
-    public_read: options.publicRead ?? false,
-    public_write: options.publicWrite ?? false,
-    adaptor: options.adaptor ?? "triples",
-  });
-  if (error) throw error;
-}
-// Trusted setup only. Makes the stored config match the one in code, so writes
-// are checked against it. Refused if the document's records do not fit it.
-export async function syncDocument(
-  client: SupabaseClient,
-  options: { documentId: string; config: Config; schema?: string },
-) {
-  const { error } = await within(client, options.schema).rpc("dv_configure", {
-    document_id: options.documentId,
-    config: options.config,
-  });
-  if (error) throw error;
 }
