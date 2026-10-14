@@ -20,3 +20,4 @@ export {
   provisionDocument,
 } from "./supabase";
 export { createMemoryDocument } from "./memory";
+export { documentFromUsl, SchemaError } from "./usl";

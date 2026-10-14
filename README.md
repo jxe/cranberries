@@ -58,6 +58,36 @@ that relationship's order), or not at all (omit `groupBy`). `fixed: ["person"]`
 lists collections whose members cannot be added or renamed in the editor.
 Run `sql/002_longtext.sql` after 001 before storing a `longtext` field.
 
+### From a `.usl` schema
+
+`documentFromUsl(source, { title })` builds the same config from
+[Ultimate Schema Language](https://github.com/jxe/arbor/blob/main/docs/overstory-spec/11-schema-language.md),
+the schema a Story collection uses, so one file can describe a document here and
+in Story:
+
+```
+model Article {
+  name    Text
+  stage   Stage
+  authors Person[]
+  @@views([
+    { label: "By author", line: [name, authors, stage @bullet], group: authors },
+    { label: "By stage",  group: stage },
+  ])
+}
+Article.authors[] @fold <-> Person.articles[]
+Article.stage <-> Stage.articles[]
+model Stage { @@fixed { Draft, Review, Published } }
+```
+
+The model with `@@views` is the collection and its first view's line is the
+line. `Text` is `"text"`, `Markdown` `"longtext"`, a connection to a fixed model
+is `{ choices }` with the rows' `@color`s, and an n:m connection is `{ many }` on
+its `@fold` end. `Person` is the `person` collection. In the line, `@bullet`,
+`@summary` and `@label("…")` are the presentation hints above. Anything else
+throws a `SchemaError`. `@ovst/usl` ships TypeScript with `.ts` import paths, so
+a host that typechecks needs `"allowImportingTsExtensions": true`.
+
 `createMemoryDocument(config, initial)` is an in-memory store for demos and tests.
 `provisionDocument(secretClient, {...})` creates a document row from a seed script.
 

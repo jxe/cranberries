@@ -14,7 +14,13 @@
     },
     "./style.css": "./src/style.css"
   },
-  "files": ["src", "sql"],
+  "files": [
+    "src",
+    "sql"
+  ],
+  "dependencies": {
+    "@ovst/usl": "^0.1.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
@@ -28,7 +34,9 @@
     "vite": ">=5"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": true }
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.117.2",

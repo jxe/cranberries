@@ -1,6 +1,7 @@
 # Architecture
 
-The configuration is four decisions: schema, collection, line and views.
+The configuration is four decisions: schema, collection, line and views. It is
+written in TypeScript or derived from a `.usl` schema (`src/usl.ts`).
 A record is an entity; each place it appears is an occurrence. Relationships use
 stable IDs, including people. Renames do not rewrite relationships. React keys
 use grouping and entity identity, never text values. The active editable span
