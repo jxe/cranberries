@@ -15,6 +15,9 @@
     "./style.css": "./src/style.css"
   },
   "files": ["src", "sql", "scripts/sql.js"],
+  "dependencies": {
+    "@ovst/usl": "^0.1.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "sql": "node scripts/sql.js",
@@ -29,7 +32,9 @@
     "vite": ">=5"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": true }
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.117.2",

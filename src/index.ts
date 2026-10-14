@@ -41,3 +41,4 @@ export {
 export { createMemoryDocument } from "./memory";
 export { createIdentity } from "./identity";
 export type { Identity } from "./identity";
+export { documentFromUsl, SchemaError } from "./usl";
