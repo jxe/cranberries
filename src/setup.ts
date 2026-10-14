@@ -43,7 +43,12 @@ export async function databaseSql({
   ].join("\n\n");
 }
 
-const pool = async (url = process.env.DATABASE_URL) => {
+// The same variables the Vite plugin reads (vite.js).
+const databaseUrl = () =>
+  process.env.DATABASE_URL ??
+  process.env.POSTGRES_URL ??
+  process.env.DIRECT_URL;
+const pool = async (url = databaseUrl()) => {
   if (!url) throw Error("Set DATABASE_URL first.");
   const { default: pg } = await import("pg");
   return new pg.Pool({ connectionString: url, max: 1 });
@@ -64,7 +69,8 @@ export async function setupDatabase(
 
 // For a seed script: sets up the database, then creates the document if it
 // is missing, and otherwise brings its stored config up to date with the one
-// in code, leaving its records alone. Uses DATABASE_URL.
+// in code, leaving its records alone. Uses DATABASE_URL (or POSTGRES_URL or
+// DIRECT_URL).
 export async function seedFromEnv(
   options: {
     documentId: string;

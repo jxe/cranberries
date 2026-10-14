@@ -1,5 +1,6 @@
 // `cranberries setup` applies the site's database SQL (setup.ts) to
-// DATABASE_URL, read from the environment or .env.local; `cranberries sql`
+// DATABASE_URL (or POSTGRES_URL or DIRECT_URL), read from the environment or
+// .env.local; `cranberries sql`
 // prints it, for pasting into the Supabase SQL editor.
 //
 //   --usl <path>     the document's schema, default lib/schema.usl if it exists
@@ -35,7 +36,8 @@ const options = {
 };
 if (command === "sql") console.log(await databaseSql(options));
 else {
-  if (!process.env.DATABASE_URL && existsSync(".env.local"))
+  const { DATABASE_URL, POSTGRES_URL, DIRECT_URL } = process.env;
+  if (!(DATABASE_URL ?? POSTGRES_URL ?? DIRECT_URL) && existsSync(".env.local"))
     process.loadEnvFile(".env.local");
   await setupDatabase(options);
   console.log(
