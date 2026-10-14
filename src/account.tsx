@@ -1,5 +1,5 @@
 // What the menu at the top right holds: signing in with a passkey, or for
-// someone signed in, adding one, the admin's sign-in links, and signing out.
+// someone signed in, adding one, the admin's invitations, and signing out.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Entity } from "./model";
 import type { Session, SessionState, SignInLink } from "./session";
@@ -42,6 +42,45 @@ function Step({
         </span>
       )}
     </>
+  );
+}
+// A modal over the page. Escape, the close button or a click outside closes it.
+function Dialog({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="dv-dialog"
+      aria-label={title}
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === ref.current) ref.current.close();
+      }}
+    >
+      <span className="dv-dialog-head">
+        <h2>{title}</h2>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={() => ref.current?.close()}
+        >
+          ×
+        </button>
+      </span>
+      {children}
+    </dialog>
   );
 }
 function Links({
@@ -97,7 +136,9 @@ function Links({
           </button>
         </span>
       )}
-      <span className="dv-menu-title">New sign-in link for</span>
+      <span className="dv-menu-title">
+        Make a sign-in link for someone. They open it to sign in as that person.
+      </span>
       {people.map((p) => (
         <button
           type="button"
@@ -152,7 +193,7 @@ export function Account({
   prefix: (person: Entity) => ReactNode;
   close: () => void;
 }) {
-  const [panel, setPanel] = useState<"links">();
+  const [inviting, setInviting] = useState(false);
   if (!state.person)
     return (
       <Step
@@ -172,14 +213,22 @@ export function Account({
       {state.admin && (
         <button
           type="button"
-          aria-expanded={panel === "links"}
-          onClick={() => setPanel(panel === "links" ? undefined : "links")}
+          aria-haspopup="dialog"
+          onClick={() => setInviting(true)}
         >
-          Sign-in links
+          Invite people
         </button>
       )}
-      {panel === "links" && (
-        <Links session={session} people={people} prefix={prefix} />
+      {inviting && (
+        <Dialog
+          title="Invite people"
+          onClose={() => {
+            setInviting(false);
+            close();
+          }}
+        >
+          <Links session={session} people={people} prefix={prefix} />
+        </Dialog>
       )}
       <button type="button" onClick={() => void session.signOut().then(close)}>
         Sign out
