@@ -85,6 +85,40 @@ in. People are drawn with an avatar (their image, or initials) and named by
 their short name where space is tight. `renderPrefix(type, entity)` and
 `renderLabel(type, entity)` replace either for app-specific rendering.
 
+### From a `.usl` schema
+
+`documentFromUsl(source, { title })` builds the same config from
+[Ultimate Schema Language](https://github.com/jxe/arbor/blob/main/docs/overstory-spec/11-schema-language.md),
+the schema a Story collection uses, so one file can describe a document here and
+in Story:
+
+```
+model Article {
+  name    Text
+  stage   Stage
+  authors Person[]
+  @@views([
+    { label: "By author", line: [name, authors @label("author"), stage @bullet], group: authors },
+    { label: "By stage",  group: stage, sort: modified },
+  ])
+  @@editableBy(authors)
+}
+Article.authors[] @fold <-> Person.articles[]
+Article.stage <-> Stage.articles[]
+model Stage { @@fixed { Draft, Review, Published } }
+```
+
+The model with `@@views` is the main collection and its first view's line is
+the line. `Text` is a text field, `Markdown` a longtext one, a connection to a
+fixed model is a choice with the rows' `@color`s, and an n:m connection is a
+relationship on its `@fold` end. `Person` is the `person` collection and
+`@@editableBy(field)` its owners. In the line, `@bullet` and `@summary` are the
+options above and `@label("…")` labels the related collection. What the language
+doesn't say is given as options: `fixed` (collection keys), `admin` and
+`search`. Anything else throws a `SchemaError`. `@ovst/usl` ships TypeScript
+with `.ts` import paths, so a host that typechecks needs
+`"allowImportingTsExtensions": true`.
+
 ## Signing in
 
 A visitor reads without signing in and changes nothing. To change anything they

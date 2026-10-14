@@ -41,3 +41,4 @@ export {
 export { createMemoryDocument } from "./memory";
 export { createSession, demoSession } from "./session";
 export type { Session, SessionState, SignInLink } from "./session";
+export { documentFromUsl, SchemaError } from "./usl";
