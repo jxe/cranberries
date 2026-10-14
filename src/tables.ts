@@ -13,7 +13,7 @@
 // The tables hold one document's records, so no two documents may share them.
 import type { Adaptor, Doc, Tables, Tx } from "./server";
 import type { Config, Data, Entity, Field } from "./model";
-import { storageOf } from "./usl";
+import { storageOf, tablesSql } from "./usl";
 
 const people = ["name", "short", "image"];
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
@@ -260,6 +260,10 @@ const tablesOf = (config: Config) =>
   storageOf(config).tables.map((table) => table.name);
 
 export const tables: Adaptor = {
+  async setup(tx, t, config) {
+    if (!config.usl) throw Error("The config has no USL schema.");
+    await tx.query(tablesSql(config.usl, t.schema));
+  },
   async read(tx, t, doc) {
     const data: Data = {};
     for (const type of Object.keys(doc.config.collections))

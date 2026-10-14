@@ -58,6 +58,9 @@ export type Adaptor = {
   ): Promise<string | null>;
   // Replaces all of the document's records.
   init(tx: Tx, t: Tables, doc: Doc, data: Data): Promise<void>;
+  // Makes whatever the records need that is missing, such as their tables.
+  // Runs before a document is provisioned, configured or moved here.
+  setup?(tx: Tx, t: Tables, config: Config): Promise<void>;
 };
 export type Tables = ((
   name:
@@ -436,9 +439,31 @@ export function createServer(options: ServerOptions) {
       };
     }
   }
+  // Trusted setup: makes or brings up to date the library's own tables in its
+  // schema (sql/schema.sql). Safe to run again; run it before the rest.
+  async function install() {
+    const { readFile } = await import("node:fs/promises");
+    const sql = await readFile(
+      new URL("../sql/schema.sql", import.meta.url),
+      "utf8",
+    );
+    await database.transaction(async (tx) => {
+      if (schema !== "public")
+        await tx.query(
+          `create schema if not exists ${schema};
+           grant usage on schema ${schema} to anon, authenticated, service_role;`,
+        );
+      await tx.query(
+        sql
+          .replaceAll("public.", `${schema}.`)
+          .replaceAll("schemaname='public'", `schemaname='${schema}'`)
+          .replaceAll("nspname='public'", `nspname='${schema}'`),
+      );
+    });
+  }
   // Trusted setup. An existing document is left untouched. A document
   // described in USL keeps its records in its own tables (see tables.ts),
-  // which must be set up first with `tablesSql`.
+  // which this makes when they are missing, as configure and move do.
   async function provision(setup: {
     documentId: string;
     config: Config;
@@ -461,6 +486,7 @@ export function createServer(options: ServerOptions) {
       );
       if (!made.length) return false;
       const doc = await find(tx, setup.documentId);
+      await adaptors[doc.adaptor].setup?.(tx, t, doc.config);
       await adaptors[doc.adaptor].init(tx, t, doc, setup.data);
       return true;
     });
@@ -469,6 +495,7 @@ export function createServer(options: ServerOptions) {
   async function configure(documentId: string, config: Config) {
     await database.transaction(async (tx) => {
       const doc = { ...(await find(tx, documentId, true)), config };
+      await adaptors[doc.adaptor].setup?.(tx, t, config);
       validate(config, await adaptors[doc.adaptor].read(tx, t, doc));
       await tx.query(`update ${t("documents")} set config = $2 where id = $1`, [
         documentId,
@@ -487,6 +514,7 @@ export function createServer(options: ServerOptions) {
       const data = await adaptors[doc.adaptor].read(tx, t, doc);
       const moved = { ...doc, adaptor, config: config ?? doc.config };
       validate(moved.config, data);
+      await adaptors[adaptor].setup?.(tx, t, moved.config);
       await adaptors[adaptor].init(tx, t, moved, data);
       // Nothing is moved unless it all reads back the same.
       if (!isDeepStrictEqual(await adaptors[adaptor].read(tx, t, moved), data))
@@ -643,6 +671,7 @@ export function createServer(options: ServerOptions) {
   return {
     read,
     apply,
+    install,
     provision,
     configure,
     move,

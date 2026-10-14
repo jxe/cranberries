@@ -2,7 +2,7 @@ import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { createServer, pgDatabase } from "../src/server";
-import { documentFromUsl, tablesSql } from "../src/usl";
+import { documentFromUsl } from "../src/usl";
 import type { Data, Entity, Operation } from "../src/model";
 const connectionString = process.env.DV_TEST_DATABASE_URL;
 if (!connectionString)
@@ -59,7 +59,6 @@ const data: Data = {
 const pool = new pg.Pool({ connectionString, max: 4 });
 const db = new pg.Client({ connectionString });
 await db.connect();
-await db.query(tablesSql(usl));
 const server = createServer({ database: pgDatabase(pool) });
 let id = "";
 // The tables hold one document's records at a time.
@@ -298,4 +297,21 @@ test("a document's records move from facts to tables unchanged", async () => {
   assert.deepEqual(await server.read(id, trusted), before);
   assert.equal(await server.move(id, "tables"), false);
   assert.deepEqual(await server.read(id, trusted), before);
+});
+
+test("install makes the library's tables, and provision the schema's, in a schema of their own", async () => {
+  const own = createServer({ database: pgDatabase(pool), schema: "own" });
+  await own.install();
+  await own.install();
+  id = "";
+  assert.equal(
+    await own.provision({ documentId: "games", config, data }),
+    true,
+  );
+  assert.deepEqual((await own.read("games", trusted)).data, data);
+  assert.equal(
+    (await db.query(`select count(*)::int n from own."Game"`)).rows[0].n,
+    2,
+  );
+  await db.query("drop schema own cascade");
 });

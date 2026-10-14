@@ -196,8 +196,9 @@ Where the records themselves live is up to the document's storage adaptor
 (`dv_facts`: record, field, value). `tables`, which a document built with
 `documentFromUsl` gets, keeps its records in the tables USL lays out for the
 schema: a table per collection and a join table per relationship, with an
-`@ordered` end's position column. `tablesSql(source, schema)` is their setup
-SQL, safe to run again; people, who have no table in USL, are kept in
+`@ordered` end's position column. Provisioning, configuring or moving such a
+document makes any of its tables that are missing (`tablesSql(source,
+schema)` prints that SQL); people, who have no table in USL, are kept in
 `dv_people`. Those tables belong to one document. `server.move(document,
 adaptor)` moves a document's records to another adaptor, keeping ids, order and
 stamps.
@@ -206,8 +207,11 @@ When the config in code changes, `syncDocument(secretClient, { documentId,
 config })` updates the stored copy. It is refused if existing records do not
 fit; give a new field a `default` and they do.
 
-To keep the library's tables apart from an existing application's, install
-into a schema of their own: `npm run sql -- myschema schema | psql ...`, add
+`server.install()` makes or updates the library's own tables, from a seed
+script with a database URL; it is safe to run again. To keep them apart from
+an existing application's, install into a schema of their own:
+`createServer({ schema: "myschema", ... }).install()`, or `npm run sql --
+myschema schema | psql ...` for the SQL itself. Then add
 that schema to the project's exposed schemas, and pass `schema: "myschema"` to
 `createSupabaseDocument`, `readDocument`, `mountDocument` and the seed helpers.
 
