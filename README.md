@@ -100,31 +100,40 @@ the schema a Story collection uses, so one file can describe a document here and
 in Story:
 
 ```
-model Article {
+main model Article {
   name    Text
   stage   Stage
   authors Person[]
-  @@views([
-    { label: "By author", line: [name, authors @label("author"), stage @bullet], group: authors },
-    { label: "By stage",  group: stage, sort: modified },
-  ])
-  @@editableBy(authors)
 }
 Article.authors[] @fold <-> Person.articles[]
 Article.stage <-> Stage.articles[]
-model Stage { @@fixed { Draft, Review, Published } }
+enum Stage { Draft, Review, Published }
+
+re Article {
+  ~views([
+    { label: "By author", line: [name, authors ~label("author"), stage ~bullet], group: authors },
+    { label: "By stage",  group: stage, sort: modified },
+  ])
+}
+re Stage { Draft ~color("#9aa0aa") }
 ```
 
-The model with `@@views` is the main collection and its first view's line is
-the line. `Text` is a text field, `Markdown` a longtext one, a connection to a
-fixed model is a choice with the rows' `@color`s, and an n:m connection is a
-relationship on its `@fold` end. `Person` is the `person` collection and
-`@@editableBy(field)` its owners. In the line, `@bullet` and `@summary` are the
-options above and `@label("…")` labels the related collection. What the language
-doesn't say is given as options: `fixed` (collection keys), `admin` and
-`search`. Anything else throws a `SchemaError`. The document's records go in
-the schema's own tables (see Storage). `@ovst/usl` ships TypeScript
-with `.ts` import paths, so a host that typechecks needs
+```ts
+documentFromUsl(source, { title: "Articles", owners: { article: "authors" } });
+```
+
+The `main model` is the main collection and the first of its `~views` gives
+the line. `Text` is a text field, `Markdown` a longtext one, a connection to an
+`enum` is a choice with the `~color`s its `re` block gives, and an n:m
+connection is a relationship on its `@fold` end. `Person` is the `person`
+collection. In the line, `~bullet` and `~summary` are the options above and
+`~label("…")` labels the related collection. What the language doesn't say is
+given as options: `fixed` (collection keys), `admin`, `search`, and `owners`,
+which names the person field whose people own each collection's records (who
+may edit is access policy, not schema). Anything else throws a `SchemaError`.
+The document's records go in the schema's own tables (see Storage).
+`@ovst/usl` 0.3 or later is needed for this syntax. It ships TypeScript with
+`.ts` import paths, so a host that typechecks needs
 `"allowImportingTsExtensions": true`.
 
 ## Signing in
@@ -203,7 +212,7 @@ Where the records themselves live is up to the document's storage adaptor
 (`dv_facts`: record, field, value). `tables`, which a document built with
 `documentFromUsl` gets, keeps its records in the tables USL lays out for the
 schema: a table per collection and a join table per relationship, with an
-`@ordered` end's position column. Provisioning, configuring or moving such a
+`ordered` end's position column. Provisioning, configuring or moving such a
 document makes any of its tables that are missing (`tablesSql(source,
 schema)` prints that SQL); people, who have no table in USL, are kept in
 `dv_people`. Those tables belong to one document. `server.move(document,

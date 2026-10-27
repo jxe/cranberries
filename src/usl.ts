@@ -4,17 +4,16 @@
 // stores and validates.
 //
 // - Each model with data rows is a collection named after the model in lower
-//   case (`@@table("…")` names it instead). It needs a `name Text` field.
+//   case (`@table("…")` names it instead). It needs a `name Text` field.
 // - `Text` is a "text" field and `Markdown` a "longtext" one.
 // - `Person` is the "person" collection: people with a name, short name and
 //   image, like Story profiles.
-// - A connection to a fixed model is a choice, with its rows' colors. An n:m
-//   connection is a relationship stored on its `@fold` end, as data files
-//   store it.
-// - `@@editableBy(field)` makes a collection owned by the people in that field.
-// - The main collection is the model with `@@views`. Its first view's line is
-//   the line; `@bullet` and `@summary` in it are presentation, and
-//   `@label("…")` names the collection its members belong to. A view grouped
+// - A connection to an `enum` is a choice, with the colors its `re` block
+//   gives its values (`~color`). An n:m connection is a relationship stored
+//   on its `@fold` end, as data files store it.
+// - The main collection is the `main model`. The first of its `~views` gives
+//   the line; `~bullet` and `~summary` in it are presentation, and
+//   `~label("…")` names the collection its members belong to. A view grouped
 //   by a connection that is stored on the other side groups by that side's
 //   relationship; `sort: modified` puts recent changes first.
 // - The records are kept in the tables USL lays out for a database (`tablesSql`
@@ -23,8 +22,10 @@
 //   the tables from it (`storageOf`); people, who have no table there, the
 //   library keeps in dv_people.
 // - What the language doesn't say (who the admin is, the search box, which
-//   collections are provisioned rather than added to in the editor) is given
-//   as options.
+//   collections are provisioned rather than added to in the editor, and who
+//   owns a collection's records) is given as options. Ownership is access
+//   policy, not schema: `owners: { game: "authors" }` makes a game editable
+//   only by the people in its `authors` field.
 
 import {
   compileUsl,
@@ -57,6 +58,8 @@ export function documentFromUsl(
     fixed?: string[];
     admin?: string;
     search?: boolean;
+    /** Collection key to the person field whose people own its records. */
+    owners?: Record<string, string>;
   },
 ): Config {
   const result = compiled(source);
@@ -80,20 +83,19 @@ export function documentFromUsl(
       );
     if (model.rows === "seed")
       throw new SchemaError(
-        `${model.name}: @@seed isn't supported; use @@fixed`,
+        `${model.name}: seed rows aren't supported; use an enum`,
       );
     if (model.key.join() !== "id")
       throw new SchemaError(`${model.name}: records are keyed by id only`);
   }
-  const withViews = data.filter((m) => m.views.length > 0);
-  if (withViews.length !== 1)
+  const main = data.find((m) => m.main);
+  if (!main)
     throw new SchemaError(
-      "Give exactly one model @@views: the document's main collection",
+      "Mark the document's main collection `main model`",
     );
-  const main = withViews[0]!;
-  const line = main.views[0]!.line;
+  const line = main.views[0]?.line ?? [];
   if (line.length === 0)
-    throw new SchemaError(`${main.name}: its first view needs a line`);
+    throw new SchemaError(`${main.name}: give it ~views, the first with a line`);
   const presentation = new Map(line.map((item) => [item.field, item]));
 
   // The field each end of a connection becomes on the model that stores it.
@@ -154,14 +156,15 @@ export function documentFromUsl(
     fields: Record<string, Field>,
   ): Collection => {
     const k = key(name);
-    const owner = models.get(name)?.editableBy;
-    if (owner && owner.length > 1)
-      throw new SchemaError(`${name}: @@editableBy takes one field`);
+    const owner = options.owners?.[k];
+    const held = owner === undefined ? undefined : fields[owner];
+    if (owner !== undefined && !(held?.type === "many" && held.of === "person"))
+      throw new SchemaError(`owners: ${k}.${owner} isn't a field of people`);
     return {
       ...(name === "Person" ? { kind: "person" as const } : {}),
       label: labels.get(k) ?? lowerFirst(name),
       ...(fixed.has(k) ? { fixed: true } : {}),
-      ...(owner?.length ? { owners: owner[0] } : {}),
+      ...(owner !== undefined ? { owners: owner } : {}),
       fields,
     };
   };
@@ -189,6 +192,9 @@ export function documentFromUsl(
       throw new SchemaError(`${model.name} needs a \`name Text\` field`);
     collections[key(model.name)] = collection(model.name, fields);
   }
+  for (const k of Object.keys(options.owners ?? {}))
+    if (!collections[k] || k === "person")
+      throw new SchemaError(`owners: no collection ${k}`);
 
   const views: View[] = main.views.map((view) => {
     if (view.sort && view.sort !== "modified")

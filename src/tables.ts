@@ -6,7 +6,7 @@
 // they are kept here in dv_people, one row per person of the document.
 //
 // A collection reads in the order its records were made (`created`); so do
-// the members of a relationship, unless it is @ordered, when its position
+// the members of a relationship, unless it is ordered, when its position
 // column orders them. A record with no `modified` stamp, which only a port
 // from another adaptor makes, keeps '-infinity' in that column.
 //
@@ -28,7 +28,7 @@ const fallback = (d: Field) =>
 // Where one collection's records are: its table, the column of each text or
 // choice field, and the join table of each relationship, whose `from` column
 // holds this record's id and `to` the member's. `position` orders the members
-// when the relationship is @ordered; `back` orders the other way, when that
+// when the relationship is ordered; `back` orders the other way, when that
 // end is.
 type Join = {
   table: string;

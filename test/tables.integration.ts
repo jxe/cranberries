@@ -11,29 +11,27 @@ if (!connectionString)
     "Set DV_TEST_DATABASE_URL to an isolated database with the library migration installed.",
   );
 const usl = `
-model Game {
+main model Game {
   name        Text
   authors     Person[]
   status      Status
   description Markdown?
-  @@views([{ label: "By game", line: [name, authors, status, description] }])
-  @@editableBy(authors)
 }
 model List {
   name  Text
   games Game[]
 }
 Game.authors[] @fold <-> Person.games[]
-List.games[] @ordered @fold <-> Game.lists[]
+ordered List.games[] @fold <-> Game.lists[]
 Game.status <-> Status.games[]
-model Status {
-  @@fixed {
-    Draft
-    Polished
-  }
-}
+enum Status { Draft, Polished }
+re Game { ~views([{ label: "By game", line: [name, authors, status, description] }]) }
 `;
-const config = documentFromUsl(usl, { title: "Games", admin: "ann" });
+const config = documentFromUsl(usl, {
+  title: "Games",
+  admin: "ann",
+  owners: { game: "authors" },
+});
 const person = (id: string, name: string): Entity => ({
   id,
   name,
