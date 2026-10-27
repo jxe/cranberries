@@ -4,18 +4,11 @@ import { c, defineDocument } from "../src/index";
 import { documentFromUsl, SchemaError, storageOf, tablesSql } from "../src/usl";
 
 const games = `
-model Game {
+main model Game {
   name        Text
   authors     Person[]
   status      Status
   description Markdown?
-
-  @@views([
-    { label: "By game",   line: [name, authors @label("author"), status @bullet, description], sort: modified },
-    { label: "By author", group: authors },
-    { label: "By list",   group: lists, sort: modified },
-  ])
-  @@editableBy(authors)
 }
 
 model List {
@@ -23,16 +16,24 @@ model List {
   games Game[]
 }
 
-Game.authors[] @fold <-> Person.games[]
-List.games[] @ordered @fold <-> Game.lists[]
+Game.authors[] <-> Person.games[]
+ordered List.games[] <-> Game.lists[]
 Game.status <-> Status.games[]
 
-model Status {
-  @@fixed {
-    Draft       @color("#9aa0aa")
-    Playtested  @color("#bd861a")
-    Polished    @color("#27815a")
-  }
+enum Status { Draft, Playtested, Polished }
+
+re Game {
+  ~views([
+    { label: "By game",   line: [name, authors ~label("author"), status ~bullet, description], sort: modified },
+    { label: "By author", group: authors },
+    { label: "By list",   group: lists, sort: modified },
+  ])
+}
+
+re Status {
+  Draft      ~color("#9aa0aa")
+  Playtested ~color("#bd861a")
+  Polished   ~color("#27815a")
 }
 `;
 
@@ -67,6 +68,7 @@ test("a .usl schema becomes the same config as defineDocument", () => {
   const config = documentFromUsl(games, {
     title: "Games",
     fixed: ["person"],
+    owners: { game: "authors" },
     admin: "edelwax",
     search: true,
   });
@@ -93,14 +95,14 @@ test("the tables' setup SQL is in the schema asked for", () => {
 
 test("a view grouped by the other side's relationship groups by that side", () => {
   const config = documentFromUsl(
-    `model Task {
+    `main model Task {
   name Text
   notes Markdown?
   lists List[]
-  @@views([{ label: "By list", line: [name], group: lists }])
+  ~views([{ label: "By list", line: [name], group: lists }])
 }
 model List { name Text }
-List.tasks[] @fold <-> Task.lists[]
+List.tasks[] <-> Task.lists[]
 `,
     { title: "Tasks" },
   );
@@ -123,18 +125,28 @@ test("schemas cranberries can't store are rejected with a reason", () => {
       () => documentFromUsl(source, { title: "x" }),
       (e) => e instanceof SchemaError && message.test(e.message),
     );
+  const views = '~views([{ label: "All", line: [name] }])';
   rejects(
-    'model A { name Text\n count Int\n @@views([{ label: "All", line: [name] }]) }',
+    `main model A { name Text\n count Int\n ${views} }`,
     /Text and Markdown/,
   );
   rejects(
-    'model A { name Text\n bs B[]\n @@views([{ label: "All", line: [name] }]) }\nmodel B { name Text }\nA.bs[] <-> B.as[]',
-    /@fold/,
+    `main model A { name Text\n b B?\n ${views} }\nmodel B { name Text }\nA.b? <-> B.as[]`,
+    /many-to-many/,
   );
   rejects(
-    'model A { name Text\n @@views([{ label: "All", line: [name], sort: created }]) }',
+    'main model A { name Text\n ~views([{ label: "All", line: [name], sort: created }]) }',
     /modified only/,
   );
-  rejects("model A { name Text }", /@@views/);
-  rejects("model A { name Tex }", /unknown-type/);
+  rejects(`model A { name Text\n ${views} }`, /main model/);
+  rejects("main model A { name Text }", /~views/);
+  rejects("main model A { name Tex }", /unknown-type/);
+  assert.throws(
+    () =>
+      documentFromUsl(`main model A { name Text\n ${views} }`, {
+        title: "x",
+        owners: { a: "authors" },
+      }),
+    /no field authors/,
+  );
 });

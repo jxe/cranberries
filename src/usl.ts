@@ -4,17 +4,16 @@
 // stores and validates.
 //
 // - Each model with data rows is a collection named after the model in lower
-//   case (`@@table("…")` names it instead). It needs a `name Text` field.
+//   case (`@table("…")` names it instead). It needs a `name Text` field.
 // - `Text` is a "text" field and `Markdown` a "longtext" one.
 // - `Person` is the "person" collection: people with a name, short name and
 //   image, like Story profiles.
-// - A connection to a fixed model is a choice, with its rows' colors. An n:m
-//   connection is a relationship stored on its `@fold` end, as data files
-//   store it.
-// - `@@editableBy(field)` makes a collection owned by the people in that field.
-// - The main collection is the model with `@@views`. Its first view's line is
-//   the line; `@bullet` and `@summary` in it are presentation, and
-//   `@label("…")` names the collection its members belong to. A view grouped
+// - A connection to an enum is a choice, with its values' colors. An n:m
+//   connection is a relationship on the model whose rows USL stores it with
+//   (the end written first, unless the other is `@fold`).
+// - The main collection is the `main model`, with `~views`. Its first view's
+//   line is the line; `~bullet` and `~summary` in it are presentation, and
+//   `~label("…")` names the collection its members belong to. A view grouped
 //   by a connection that is stored on the other side groups by that side's
 //   relationship; `sort: modified` puts recent changes first.
 // - The records are kept in the tables USL lays out for a database (`tablesSql`
@@ -23,8 +22,9 @@
 //   the tables from it (`storageOf`); people, who have no table there, the
 //   library keeps in dv_people.
 // - What the language doesn't say (who the admin is, the search box, which
-//   collections are provisioned rather than added to in the editor) is given
-//   as options.
+//   collections are provisioned rather than added to in the editor, and who
+//   owns a collection's records: `owners: { game: "authors" }`) is given as
+//   options.
 
 import {
   compileUsl,
@@ -55,13 +55,14 @@ export function documentFromUsl(
   options: {
     title: string;
     fixed?: string[];
+    owners?: Record<string, string>;
     admin?: string;
     search?: boolean;
   },
 ): Config {
   const result = compiled(source);
   const models = new Map(result.models.map((m) => [m.name, m]));
-  const fixedModel = (name: string) => models.get(name)?.rows === "fixed";
+  const enumModel = (name: string) => models.get(name)?.rows === "fixed";
   const key = (name: string) =>
     name === "Person"
       ? "person"
@@ -73,6 +74,9 @@ export function documentFromUsl(
   const data = result.models.filter(
     (m) => m.rows !== "fixed" && m.name !== "Person",
   );
+  const main = data.find((m) => m.main);
+  if (!main)
+    throw new SchemaError("Mark the document's main collection `main model`");
   for (const model of data) {
     if (model.ends.length > 0)
       throw new SchemaError(
@@ -80,17 +84,13 @@ export function documentFromUsl(
       );
     if (model.rows === "seed")
       throw new SchemaError(
-        `${model.name}: @@seed isn't supported; use @@fixed`,
+        `${model.name}: seed rows aren't supported; use an enum`,
       );
     if (model.key.join() !== "id")
       throw new SchemaError(`${model.name}: records are keyed by id only`);
   }
-  const withViews = data.filter((m) => m.views.length > 0);
-  if (withViews.length !== 1)
-    throw new SchemaError(
-      "Give exactly one model @@views: the document's main collection",
-    );
-  const main = withViews[0]!;
+  if (main.views.length === 0)
+    throw new SchemaError(`${main.name}: give the main model ~views`);
   const line = main.views[0]!.line;
   if (line.length === 0)
     throw new SchemaError(`${main.name}: its first view needs a line`);
@@ -101,8 +101,8 @@ export function documentFromUsl(
   const connected = new Map<string, Field>();
   for (const connection of result.connections) {
     const { a, b } = connection;
-    if (fixedModel(a.model) || fixedModel(b.model)) {
-      const [holder, choice] = fixedModel(b.model) ? [a, b] : [b, a];
+    if (enumModel(a.model) || enumModel(b.model)) {
+      const [holder, choice] = enumModel(b.model) ? [a, b] : [b, a];
       if (holder.arity !== "one")
         throw new SchemaError(
           `${holder.model}.${holder.field}: a choice holds exactly one value`,
@@ -123,7 +123,7 @@ export function documentFromUsl(
     const other = holder === a ? b : a;
     if (holder.model === "Person")
       throw new SchemaError(
-        `${connection.ends.join(" <-> ")}: fold the other end; people are provisioned`,
+        `${connection.ends.join(" <-> ")}: write the other end first; people are provisioned`,
       );
     const item =
       holder.model === main.name ? presentation.get(holder.field) : undefined;
@@ -154,14 +154,14 @@ export function documentFromUsl(
     fields: Record<string, Field>,
   ): Collection => {
     const k = key(name);
-    const owner = models.get(name)?.editableBy;
-    if (owner && owner.length > 1)
-      throw new SchemaError(`${name}: @@editableBy takes one field`);
+    const owner = options.owners?.[k];
+    if (owner !== undefined && !(owner in fields))
+      throw new SchemaError(`${name} has no field ${owner} to own it by`);
     return {
       ...(name === "Person" ? { kind: "person" as const } : {}),
       label: labels.get(k) ?? lowerFirst(name),
       ...(fixed.has(k) ? { fixed: true } : {}),
-      ...(owner?.length ? { owners: owner[0] } : {}),
+      ...(owner ? { owners: owner } : {}),
       fields,
     };
   };
@@ -274,17 +274,13 @@ function compiled(source: string): CheckResult {
   return result;
 }
 
-/** The end whose rows hold an n:m connection: the `@fold` end. */
+/** The end whose rows hold an n:m connection, where USL stores it as an array. */
 function storedEnd(connection: ResolvedConnection) {
-  const { a, b } = connection;
-  if (a.arity !== "many" || b.arity !== "many") {
+  const { a, b, storage } = connection;
+  if (a.arity !== "many" || b.arity !== "many" || storage.kind !== "array") {
     throw new SchemaError(
       `${connection.ends.join(" <-> ")}: cranberries stores many-to-many connections only`,
     );
   }
-  if (a.fold) return a;
-  if (b.fold) return b;
-  throw new SchemaError(
-    `${connection.ends.join(" <-> ")}: mark the end that holds it with @fold`,
-  );
+  return storage.on === a.model && storage.field === a.field ? a : b;
 }
