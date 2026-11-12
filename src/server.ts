@@ -470,15 +470,72 @@ export function createServer(options: ServerOptions) {
     });
   }
   // Trusted setup. Replaces the stored config; existing records must fit it.
-  async function configure(documentId: string, config: Config) {
+  async function configure(
+    documentId: string,
+    config: Config,
+    initialize: Data = {},
+  ) {
     await database.transaction(async (tx) => {
-      const doc = { ...(await find(tx, documentId, true)), config };
-      await adaptors[doc.adaptor].setup?.(tx, t, config);
-      validate(config, await adaptors[doc.adaptor].read(tx, t, doc));
+      const previous = await find(tx, documentId, true);
+      const doc = { ...previous, config };
+      const adaptor = adaptors[doc.adaptor];
+      await adaptor.setup?.(tx, t, config);
+      const operations: Operation[] = [];
+      const stamp = new Date().toISOString();
+      // Only fields absent from the previous config may be initialized. A rerun
+      // must never replace an editor's choice, including an explicit default.
+      for (const [type, rows] of Object.entries(initialize)) {
+        if (!config.collections[type])
+          throw Error(`Unknown collection ${type}`);
+        for (const seed of rows) {
+          const row = await adaptor.get(tx, t, doc, type, seed.id);
+          if (!row) continue;
+          for (const [field, value] of Object.entries(seed)) {
+            if (
+              field === "id" ||
+              field === "modified" ||
+              previous.config.collections[type]?.fields[field]
+            )
+              continue;
+            const op: Operation = {
+              kind: "set",
+              type,
+              id: seed.id,
+              field,
+              before: row[field],
+              value,
+            };
+            checkOperation(config, op);
+            if (JSON.stringify(row[field]) === JSON.stringify(value)) continue;
+            const conflict = await adaptor.apply(tx, t, doc, op, stamp);
+            if (conflict) throw Error(conflict);
+            operations.push(op);
+          }
+        }
+      }
+      validate(config, await adaptor.read(tx, t, doc));
       await tx.query(`update ${t("documents")} set config = $2 where id = $1`, [
         documentId,
         JSON.stringify(config),
       ]);
+      if (operations.length) {
+        const revision = doc.revision + 1;
+        await tx.query(
+          `update ${t("documents")} set revision = $2 where id = $1`,
+          [documentId, revision],
+        );
+        await tx.query(
+          `insert into ${t("changes")}(document_id,revision,request_id,at,by,operations) values ($1,$2,$3,$4,$5,$6)`,
+          [
+            documentId,
+            revision,
+            crypto.randomUUID(),
+            stamp,
+            null,
+            JSON.stringify(operations),
+          ],
+        );
+      }
     });
   }
   // Trusted setup. Moves a document's records to another adaptor, with their

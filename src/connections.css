@@ -203,3 +203,25 @@
   transform: scale(0.7);
   margin-right: -3px;
 }
+.dv-band-goal-controls {
+  margin-top: 10px;
+  border-top: 1px solid #e5e5e5;
+  padding-top: 5px;
+}
+.dv-band-goal-controls label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 5px;
+}
+.dv-band-goal-controls select {
+  font: inherit;
+  color: inherit;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 3px 5px;
+  background: white;
+  max-width: 120px;
+}

@@ -86,3 +86,62 @@ test("connections expose creation and editing through the existing store", () =>
   assert.match(html, /status for Task/);
   assert.doesNotMatch(html, /excellence|assessment|project name/);
 });
+
+test("persisted goal contributions override static seeds, including an explicit None", async () => {
+  const { connectionStrength } = await import("../src/connections");
+  const goal = {
+    id: "g",
+    label: "Goal",
+    title: "A full goal",
+    projectField: "goal2027",
+    projects: { p: "Primary" as const },
+  };
+  assert.equal(
+    connectionStrength(goal, { id: "p", goal2027: "Unmapped" }),
+    "Unmapped",
+  );
+  assert.equal(
+    connectionStrength(goal, { id: "p", goal2027: "Supporting" }),
+    "Supporting",
+  );
+  assert.equal(
+    connectionStrength(goal, { id: "new", goal2027: "Primary" }),
+    "Primary",
+  );
+  const nextConfig = structuredClone(config);
+  nextConfig.collections.person.fields.goal2027 = {
+    type: "choice",
+    options: [
+      { name: "Unmapped" },
+      { name: "Primary" },
+      { name: "Supporting" },
+    ],
+  };
+  const initial = {
+    data: { ...data, person: [{ ...data.person[0], goal2027: "Supporting" }] },
+    revision: 0,
+  };
+  const store = new DocumentStore(nextConfig, initial, {
+    read: async () => initial,
+    commit: async () => ({ snapshot: initial }),
+    subscribe: () => () => {},
+  });
+  store.readOnly = () => true;
+  const html = renderToString(
+    React.createElement(DocumentEditor, {
+      store,
+      initialView: "connections",
+      connections: {
+        groupCollection: "person",
+        memberField: "leads",
+        goals: [goal],
+      },
+    }),
+  );
+  assert.match(html, /Goal contribution|Goal contributions/);
+  assert.match(
+    html,
+    /disabled=""[^>]*aria-label="Goal contribution for Person"|aria-label="Goal contribution for Person"[^>]*disabled=""/,
+  );
+  assert.doesNotMatch(html, /stroke-dasharray/);
+});

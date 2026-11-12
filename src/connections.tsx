@@ -17,9 +17,21 @@ export type ConnectionViewOptions = {
     id: string;
     label: string;
     title: string;
-    projects: Record<string, ConnectionStrength>;
+    projects?: Record<string, ConnectionStrength>;
+    projectField?: string;
   }[];
 };
+export function connectionStrength(
+  goal: ConnectionViewOptions["goals"][number],
+  project: Entity,
+): ConnectionStrength {
+  const value = goal.projectField
+    ? project[goal.projectField]
+    : goal.projects?.[project.id];
+  return value === "Primary" || value === "Supporting" || value === "Enabling"
+    ? value
+    : "Unmapped";
+}
 type Selection = { type: "goal" | "project" | "entry"; id: string } | null;
 type Props = {
   options: ConnectionViewOptions;
@@ -35,6 +47,7 @@ type Props = {
   renderField(row: Entity, name: string): ReactNode;
   canEdit(type: string, row: Entity): boolean;
   onRemove(type: string, id: string): void;
+  onSetConnection(row: Entity, field: string, value: ConnectionStrength): void;
   onCreate(type: string, name: string, project?: string): string;
 };
 const members = (row: Entity, field: string): string[] =>
@@ -85,6 +98,7 @@ export function ConnectionEditor({
   renderField,
   canEdit,
   onRemove,
+  onSetConnection,
   onCreate,
 }: Props) {
   const projects = data[options.groupCollection] ?? [],
@@ -117,7 +131,7 @@ export function ConnectionEditor({
     if (selection.type === "goal") {
       const goal = options.goals.find((g) => g.id === selection.id);
       projects.forEach((p) => {
-        const strength = goal?.projects[p.id];
+        const strength = goal ? connectionStrength(goal, p) : "Unmapped";
         if (strength && strength !== "Unmapped") activeProjects.add(p.id);
       });
     }
@@ -131,9 +145,7 @@ export function ConnectionEditor({
       if (
         projects.some(
           (p) =>
-            activeProjects.has(p.id) &&
-            g.projects[p.id] &&
-            g.projects[p.id] !== "Unmapped",
+            activeProjects.has(p.id) && connectionStrength(g, p) !== "Unmapped",
         )
       )
         activeGoals.add(g.id);
@@ -220,7 +232,7 @@ export function ConnectionEditor({
       };
       projects.forEach((p) => {
         options.goals.forEach((g) => {
-          const strength = g.projects[p.id];
+          const strength = connectionStrength(g, p);
           if (strength && strength !== "Unmapped")
             connect(
               `goal:${g.id}`,
@@ -341,7 +353,6 @@ export function ConnectionEditor({
                     : 1
                 }
                 opacity={p.active ? 0.65 : 0.08}
-                strokeDasharray={p.strength === "Enabling" ? "3 5" : undefined}
               />
             ))}
           </svg>
@@ -396,6 +407,37 @@ export function ConnectionEditor({
                   <div className="dv-band-name">
                     {renderName(options.groupCollection, p)}
                   </div>
+                  {selection?.type === "project" && selection.id === p.id && (
+                    <div
+                      className="dv-band-goal-controls"
+                      aria-label={`Goal contributions for ${p.name}`}
+                    >
+                      {options.goals
+                        .filter((g) => g.projectField)
+                        .map((g) => (
+                          <label key={g.id}>
+                            <span>{g.label}</span>
+                            <select
+                              aria-label={`${g.label} contribution for ${p.name}`}
+                              value={connectionStrength(g, p)}
+                              disabled={!canEdit(options.groupCollection, p)}
+                              onChange={(e) =>
+                                onSetConnection(
+                                  p,
+                                  g.projectField!,
+                                  e.target.value as ConnectionStrength,
+                                )
+                              }
+                            >
+                              <option value="Unmapped">None</option>
+                              <option>Primary</option>
+                              <option>Supporting</option>
+                              <option>Enabling</option>
+                            </select>
+                          </label>
+                        ))}
+                    </div>
+                  )}
                   {selection?.type === "project" &&
                     selection.id === p.id &&
                     !groupFixed &&
@@ -490,7 +532,7 @@ export function ConnectionEditor({
         </div>
       </div>
       <div className="dv-band-legend">
-        Black: primary · Grey: supporting · Dashed: enabling
+        Black: primary · Grey: supporting · Thin grey: enabling
       </div>
     </div>
   );

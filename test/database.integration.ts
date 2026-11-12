@@ -945,3 +945,52 @@ both(
     assert.deepEqual(left.rows, []);
   },
 );
+
+both(
+  "new field initialization is atomic, logged, and preserves subsequent editor choices",
+  async () => {
+    const id = await create();
+    const next = structuredClone(config);
+    next.collections.task.fields.goal2027 = {
+      type: "choice",
+      options: ["Unmapped", "Primary", "Supporting"].map((name) => ({ name })),
+    };
+    const initialize = { task: [{ id: "t", goal2027: "Primary" }] };
+    await server.configure(id, next, initialize);
+    const seeded = await read(id);
+    assert.equal(seeded.data.task[0].goal2027, "Primary");
+    assert.equal(seeded.data.task[0].name, "Task");
+    assert.equal(seeded.revision, 1);
+    const log = await db.query(
+      "select operations from dv_changes where document_id=$1",
+      [id],
+    );
+    assert.equal(log.rows.length, 1);
+    assert.equal(log.rows[0].operations[0].field, "goal2027");
+    await assert.rejects(
+      () =>
+        server.apply(id, crypto.randomUUID(), [
+          set("goal2027", "Primary", "Supporting"),
+        ] as Operation[]),
+      /Sign in/,
+    );
+    await commit(id, [set("goal2027", "Primary", "Unmapped")]);
+    await server.configure(id, next, initialize);
+    assert.equal((await read(id)).data.task[0].goal2027, "Unmapped");
+    assert.equal((await read(id)).revision, 2);
+    const invalid = structuredClone(next);
+    invalid.collections.task.fields.otherGoal = {
+      type: "choice",
+      options: [{ name: "Unmapped" }, { name: "Primary" }],
+    };
+    await assert.rejects(
+      () =>
+        server.configure(id, invalid, {
+          task: [{ id: "t", otherGoal: "Wrong" }],
+        }),
+      /Invalid choice/,
+    );
+    assert.equal((await read(id)).data.task[0].otherGoal, undefined);
+    assert.equal((await read(id)).revision, 2);
+  },
+);

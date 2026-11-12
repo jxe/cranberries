@@ -909,6 +909,9 @@ export function DocumentEditor({
               fields={Object.keys(main).filter((name) => name !== "name")}
               canEdit={can}
               onRemove={(type, id) => store.remove(type, id)}
+              onSetConnection={(row, field, value) =>
+                store.set(connections.groupCollection, row.id, field, value)
+              }
               onCreate={(type, name, project) => {
                 const row = newEntity(config, type, crypto.randomUUID());
                 row.name = name;

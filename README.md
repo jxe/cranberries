@@ -294,12 +294,20 @@ Supabase reference: https://supabase.com/docs/guides/realtime/postgres-changes
 
 `DocumentEditor` and `mountDocument` accept optional `connections` settings and
 `initialView: "connections"`. The settings name a `groupCollection`, the main
-collection's many-reference `memberField`, and static `goals` with ID-keyed
-project strengths (`Primary`, `Supporting`, `Enabling`, or `Unmapped`). These
-settings are presentation data, not new schema or database records.
+collection's many-reference `memberField`, and `goals` with a `projectField` naming the project’s stored contribution
+choice. Selecting a project exposes those fields through the existing store.
+For read-only projections, a goal may instead supply static, ID-keyed `projects`
+strengths (`Primary`, `Supporting`, `Enabling`, or `Unmapped`).
 
 The view reuses the editor's text, choice, membership, account, presence, draft,
 and save controls. Records are shared with the ordinary views; additions,
 removals and membership edits go through the same store and server checks.
 Without `connections`, the existing arrangements remain unchanged. Import
 `cranberries/style.css` for the connections styling along with the editor.
+
+Trusted `server.configure(documentId, config, initialize)` can initialize new
+fields on existing records while updating the stored schema. `initialize` uses
+the data shape with partial rows (`{ project: [{ id, goalField: "Primary" }] }`).
+It only applies fields absent from the previous config, so rerunning it preserves
+edits, including an explicit default. Configuration, data initialization and
+its revision/change log commit atomically. Missing record IDs are skipped.
