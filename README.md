@@ -289,3 +289,17 @@ service secret or the database URL to a browser.
 
 See ARCHITECTURE.md for concurrency semantics, access policy and limits.
 Supabase reference: https://supabase.com/docs/guides/realtime/postgres-changes
+
+## Editable connections view
+
+`DocumentEditor` and `mountDocument` accept optional `connections` settings and
+`initialView: "connections"`. The settings name a `groupCollection`, the main
+collection's many-reference `memberField`, and static `goals` with ID-keyed
+project strengths (`Primary`, `Supporting`, `Enabling`, or `Unmapped`). These
+settings are presentation data, not new schema or database records.
+
+The view reuses the editor's text, choice, membership, account, presence, draft,
+and save controls. Records are shared with the ordinary views; additions,
+removals and membership edits go through the same store and server checks.
+Without `connections`, the existing arrangements remain unchanged. Import
+`cranberries/style.css` for the connections styling along with the editor.

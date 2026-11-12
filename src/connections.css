@@ -1,0 +1,205 @@
+.dv-document.dv-connections-document {
+  max-width: none;
+  margin: 20px auto;
+  padding: 0 24px;
+  font:
+    14px/1.5 Arial,
+    sans-serif;
+}
+.dv-connections-document > header {
+  margin-bottom: 15px;
+}
+.dv-connections-document header h1 {
+  font-size: 15px;
+}
+.dv-connections-document nav {
+  gap: 20px;
+}
+.dv-band-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  color: #888;
+  font-size: 11px;
+  margin: 12px 0;
+}
+.dv-band-toolbar button {
+  white-space: nowrap;
+}
+.dv-band-scroll {
+  overflow-x: auto;
+}
+.dv-band-stage {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 260px 260px minmax(320px, 1fr);
+  gap: clamp(65px, 7vw, 135px);
+  min-width: 1030px;
+  height: max(600px, calc(100vh - 195px));
+}
+.dv-band-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.dv-band-lines path {
+  stroke-linecap: round;
+}
+.dv-band-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.dv-document .dv-band-column h2 {
+  font-size: 12px;
+  font-weight: 500;
+  color: #777;
+  margin: 0;
+  padding: 10px 5px;
+  background: white;
+}
+.dv-band-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 5px;
+  scrollbar-width: thin;
+}
+.dv-band-column:first-of-type .dv-band-list,
+.dv-band-column:nth-of-type(2) .dv-band-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 14px;
+}
+.dv-band-node {
+  position: relative;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+  min-height: 45px;
+}
+.dv-band-node.selected {
+  border-color: #666;
+  background: #f5f6f7;
+}
+.dv-band-node.related {
+  border-color: #aaa;
+}
+.dv-band-node.dim {
+  opacity: 0.45;
+}
+.dv-document .dv-band-select {
+  width: 100%;
+  text-align: left;
+  line-height: 1.5;
+  cursor: grab;
+}
+.dv-band-select strong {
+  font-size: 12px;
+  font-weight: 500;
+  display: block;
+}
+.dv-band-select small {
+  display: block;
+  font-size: 11px;
+  color: #777;
+  margin-top: 5px;
+}
+.dv-document .dv-band-handle {
+  float: right;
+  color: #999;
+  cursor: grab;
+  padding-left: 7px;
+}
+.dv-band-name {
+  font-size: 12px;
+  font-weight: 500;
+}
+.dv-band-fields {
+  font-size: 11px;
+  color: #777;
+}
+.dv-band-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+.dv-band-field-label {
+  font-size: 10px;
+  color: #999;
+}
+.dv-band-node .dv-dot {
+  width: 6px;
+  height: 6px;
+}
+.dv-band-node .dv-menu {
+  position: fixed;
+  top: auto;
+  left: auto;
+  max-width: 300px;
+  font-size: 13px;
+}
+.dv-band-node:has(.dv-menu) {
+  opacity: 1;
+  z-index: 10;
+}
+.dv-band-node .dv-menu .dv-dot {
+  margin-right: 6px;
+}
+.dv-document .dv-band-remove {
+  font-size: 10px;
+  color: #a35f5f;
+  margin-top: 10px;
+}
+.dv-band-add {
+  display: flex;
+  gap: 8px;
+  padding: 8px 5px;
+  border-top: 1px solid #eee;
+}
+.dv-band-add input {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+.dv-band-add button {
+  font-size: 12px;
+}
+.dv-band-legend {
+  color: #999;
+  font-size: 10px;
+  margin-top: 12px;
+}
+.dv-band-node.dragging {
+  z-index: 5;
+  box-shadow: 0 2px 8px #0001;
+}
+.dv-band-node.returning {
+  transition: transform 0.45s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-band-node.returning {
+    transition: none;
+  }
+}
+.dv-band-node .portrait-hoop {
+  transform: scale(0.7);
+  margin-right: -3px;
+}

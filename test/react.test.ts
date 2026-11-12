@@ -19,3 +19,70 @@ test("a document renders from configuration alone", () => {
   assert.match(html, /Status/);
   assert.doesNotMatch(html, /excellence|assessment|project/);
 });
+
+test("connections reuse field controls and suppress every mutation for visitors", () => {
+  const initial = { data, revision: 0 };
+  const store = new DocumentStore(config, initial, {
+    read: async () => initial,
+    commit: async () => {
+      throw Error("A visitor must not write");
+    },
+    subscribe: () => () => {},
+  });
+  store.readOnly = () => true;
+  const html = renderToString(
+    React.createElement(DocumentEditor, {
+      store,
+      initialView: "connections",
+      connections: {
+        groupCollection: "person",
+        memberField: "leads",
+        goals: [
+          {
+            id: "g",
+            label: "Goal",
+            title: "A complete goal",
+            projects: { p: "Primary" },
+          },
+        ],
+      },
+    }),
+  );
+  assert.match(html, /A complete goal/);
+  assert.match(html, /Trace Person/);
+  assert.match(html, /status for Task/);
+  assert.match(html, /aria-readonly="true"/);
+  assert.match(
+    html,
+    /disabled=""[^>]*aria-label="status for Task"|aria-label="status for Task"[^>]*disabled=""/,
+  );
+  assert.doesNotMatch(
+    html,
+    /New task name|New person name|Remove person|Remove task/,
+  );
+});
+
+test("connections expose creation and editing through the existing store", () => {
+  const initial = { data, revision: 0 };
+  const store = new DocumentStore(config, initial, {
+    read: async () => initial,
+    commit: async () => ({ snapshot: initial }),
+    subscribe: () => () => {},
+  });
+  const html = renderToString(
+    React.createElement(DocumentEditor, {
+      store,
+      initialView: "connections",
+      connections: {
+        groupCollection: "person",
+        memberField: "leads",
+        goals: [],
+      },
+    }),
+  );
+  assert.match(html, /New task name/);
+  assert.match(html, /New person name/);
+  assert.match(html.replace(/<!--.*?-->/g, ""), /Remove person/);
+  assert.match(html, /status for Task/);
+  assert.doesNotMatch(html, /excellence|assessment|project name/);
+});

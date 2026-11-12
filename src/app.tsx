@@ -19,7 +19,10 @@ export type DocumentAppOptions = {
   schema?: string;
   // The server function that reads and writes (see `cranberries/server`).
   endpoint?: string;
-} & Pick<DocumentEditorProps, "renderPrefix" | "renderLabel">;
+} & Pick<
+  DocumentEditorProps,
+  "renderPrefix" | "renderLabel" | "connections" | "initialView"
+>;
 export function DocumentApp({
   initial,
   documentId,
@@ -30,6 +33,8 @@ export function DocumentApp({
   endpoint,
   renderPrefix,
   renderLabel,
+  connections,
+  initialView,
   session,
 }: DocumentAppOptions & { initial: Snapshot; session: Session }) {
   const [client] = useState(() =>
@@ -68,6 +73,8 @@ export function DocumentApp({
         session={session}
         renderPrefix={renderPrefix}
         renderLabel={renderLabel}
+        connections={connections}
+        initialView={initialView}
       />
     </>
   );

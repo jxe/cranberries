@@ -24,6 +24,8 @@ import { DocumentStore } from "./store";
 import { fieldKey, usePresence, type PresenceOptions } from "./presence";
 import type { Session } from "./session";
 import { Account } from "./account";
+import { ConnectionEditor, type ConnectionViewOptions } from "./connections";
+export type { ConnectionViewOptions, ConnectionStrength } from "./connections";
 const MenuContext = createContext<{
   open: string | null;
   setOpen: (key: string | null) => void;
@@ -406,6 +408,8 @@ export function useDocument(store: DocumentStore) {
   return state;
 }
 export type DocumentEditorProps = {
+  connections?: ConnectionViewOptions;
+  initialView?: "connections";
   store: DocumentStore;
   presence?: PresenceOptions;
   // Who is signed in, and the menu for it; see createSession.
@@ -422,10 +426,14 @@ export function DocumentEditor({
   renderLabel,
   presence,
   session,
+  connections,
+  initialView,
 }: DocumentEditorProps) {
   const state = useDocument(store),
     config = store.config;
-  const [viewIndex, setView] = useState(0),
+  const [viewIndex, setView] = useState(
+      initialView === "connections" && connections ? config.views.length : 0,
+    ),
     [open, setOpen] = useState<string | null>(null),
     [draft, setDraft] = useState<string | null>(null),
     [entry, setEntry] = useState<string | null>(null),
@@ -525,12 +533,15 @@ export function DocumentEditor({
   const unknown = others.filter(
     (id) => !everyone.some((r) => r.id === id),
   ).length;
-  const view = config.views[viewIndex],
+  const connectionMode = !!connections && viewIndex === config.views.length;
+  const view = config.views[viewIndex] ?? config.views[0],
     main = fieldsOf(config, config.main);
   // A view groups by a field of the collection, by another collection's
   // relationship to it (reverse), or not at all.
-  const reverse = typeof view.groupBy === "object" ? view.groupBy : null,
-    groupField = typeof view.groupBy === "string" ? view.groupBy : null,
+  const reverse =
+      !connectionMode && typeof view.groupBy === "object" ? view.groupBy : null,
+    groupField =
+      !connectionMode && typeof view.groupBy === "string" ? view.groupBy : null,
     descriptor = groupField ? main[groupField] : undefined;
   const groupType = reverse
     ? reverse.collection
@@ -594,7 +605,12 @@ export function DocumentEditor({
     if (owner && reverse)
       store.link(reverse.collection, owner.id, reverse.field, row.id);
   }
-  function field(row: Entity, name: string, occurrence: string) {
+  function field(
+    row: Entity,
+    name: string,
+    occurrence: string,
+    inline = false,
+  ) {
     const d = main[name],
       value = row[name];
     if (d.type === "text" || d.type === "longtext")
@@ -610,13 +626,23 @@ export function DocumentEditor({
           id={`${occurrence}:${name}`}
           ariaLabel={`${name} for ${row.name}`}
           disabled={!can(config.main, row)}
-          className={d.bullet ? "dv-bullet" : ""}
+          className={d.bullet && !inline ? "dv-bullet" : ""}
           label={
             d.bullet ? (
-              <i
-                className="dv-dot"
-                style={{ background: colors(String(value)) }}
-              />
+              inline ? (
+                <span style={{ color: colors(String(value)) }}>
+                  <i
+                    className="dv-dot"
+                    style={{ background: colors(String(value)) }}
+                  />{" "}
+                  {String(value)}
+                </span>
+              ) : (
+                <i
+                  className="dv-dot"
+                  style={{ background: colors(String(value)) }}
+                />
+              )
             ) : (
               String(value)
             )
@@ -695,9 +721,11 @@ export function DocumentEditor({
       <OpenEntry.Provider value={{ entry, setEntry }}>
         <main
           className={
-            config.line.some((name) => main[name].type === "longtext")
-              ? "dv-document dv-blocks"
-              : "dv-document"
+            connectionMode
+              ? "dv-document dv-connections-document"
+              : config.line.some((name) => main[name].type === "longtext")
+                ? "dv-document dv-blocks"
+                : "dv-document"
           }
           ref={root}
         >
@@ -787,7 +815,12 @@ export function DocumentEditor({
                 </span>
               ))}
             <nav aria-label="Group document">
-              {config.views.map((v, i) => (
+              {[
+                ...config.views,
+                ...(connections
+                  ? [{ label: connections.label ?? "Connections" }]
+                  : []),
+              ].map((v, i) => (
                 <button
                   key={i}
                   aria-pressed={viewIndex === i}
@@ -859,173 +892,212 @@ export function DocumentEditor({
               )}
             </div>
           )}
-          {query.trim() && !arranged.length && (
-            <p className="dv-empty">No {noun(config.main)}s match.</p>
-          )}
-          {arranged.map((group) => (
-            <Fragment key={`${viewIndex}:${group.id}`}>
-              {!group.id && groupControl}
-              <section>
-                <h2 hidden={view.groupBy === undefined}>
-                  {group.type
-                    ? (() => {
-                        const row = state.data[group.type].find(
-                          (r) => r.id === group.id,
-                        )!;
-                        return (
-                          <>
-                            {renderPrefix(group.type, row)}
-                            {text(group.type, row)}
-                          </>
+          {connectionMode && connections ? (
+            <ConnectionEditor
+              options={connections}
+              data={state.data}
+              main={config.main}
+              entryLabel={noun(config.main)}
+              groupLabel={noun(connections.groupCollection)}
+              readOnly={readOnly}
+              entryFixed={fixed(config.main)}
+              groupFixed={fixed(connections.groupCollection)}
+              renderName={text}
+              renderField={(row, name) =>
+                field(row, name, `connections:${row.id}`, true)
+              }
+              fields={Object.keys(main).filter((name) => name !== "name")}
+              canEdit={can}
+              onRemove={(type, id) => store.remove(type, id)}
+              onCreate={(type, name, project) => {
+                const row = newEntity(config, type, crypto.randomUUID());
+                row.name = name;
+                if (type === config.main && project)
+                  row[connections.memberField] = [project];
+                store.create(type, row);
+                return row.id;
+              }}
+            />
+          ) : (
+            <>
+              {query.trim() && !arranged.length && (
+                <p className="dv-empty">No {noun(config.main)}s match.</p>
+              )}
+              {arranged.map((group) => (
+                <Fragment key={`${viewIndex}:${group.id}`}>
+                  {!group.id && groupControl}
+                  <section>
+                    <h2 hidden={view.groupBy === undefined}>
+                      {group.type
+                        ? (() => {
+                            const row = state.data[group.type].find(
+                              (r) => r.id === group.id,
+                            )!;
+                            return (
+                              <>
+                                {renderPrefix(group.type, row)}
+                                {text(group.type, row)}
+                              </>
+                            );
+                          })()
+                        : group.name}
+                    </h2>
+                    <ul>
+                      {group.rows.map((row) => {
+                        const occurrence = `${viewIndex}:${group.id}:${row.id}`;
+                        const colored = Object.entries(main).find(
+                          ([, d]) => d.type === "choice" && d.bullet,
                         );
-                      })()
-                    : group.name}
-                </h2>
-                <ul>
-                  {group.rows.map((row) => {
-                    const occurrence = `${viewIndex}:${group.id}:${row.id}`;
-                    const colored = Object.entries(main).find(
-                      ([, d]) => d.type === "choice" && d.bullet,
-                    );
-                    const color =
-                      colored?.[1].type === "choice"
-                        ? colored[1].options.find(
-                            (o) => o.name === row[colored[0]],
-                          )?.color
-                        : undefined;
-                    return (
-                      <li
-                        key={row.id}
-                        // Editing an entry opens it, which closes any other.
-                        onFocus={(e) => {
-                          if (!e.target.closest(".dv-more"))
-                            setEntry(occurrence);
-                        }}
-                      >
-                        {colored && field(row, colored[0], occurrence)}
-                        {config.line
-                          .filter(
-                            (name) =>
-                              name !== colored?.[0] &&
-                              name !== groupField &&
-                              main[name].type !== "longtext",
-                          )
-                          .map((name, i) => (
-                            <Fragment key={name}>
-                              {i === 1 &&
-                                !(
-                                  main[name].type === "many" &&
-                                  main[name].summary
-                                ) && <span className="dv-separator"> — </span>}
-                              <span
-                                style={
-                                  main[name].type === "text"
-                                    ? { color }
-                                    : undefined
-                                }
-                              >
-                                {field(row, name, occurrence)}
-                              </span>
-                            </Fragment>
-                          ))}
-                        {config.line
-                          .filter((name) => main[name].type === "longtext")
-                          .map((name) => (
-                            <Note key={name} entry={occurrence}>
-                              <EditableText
-                                multiline
-                                readOnly={!can(config.main, row)}
-                                placeholder={`Add ${name}`}
-                                presenceKey={fieldKey(
-                                  config.main,
-                                  row.id,
-                                  name,
-                                )}
-                                value={String(row[name])}
-                                label={`${noun(config.main)} ${name}`}
-                                onChange={(v, b) =>
-                                  store.set(config.main, row.id, name, v, b)
-                                }
-                              />
-                            </Note>
-                          ))}
-                        <Menu
-                          id={`${occurrence}:actions`}
-                          className="dv-actions"
-                          ariaLabel={`Options for ${row.name}`}
-                          label="···"
-                        >
-                          {groupType && (
-                            <>
-                              <span className="dv-menu-title">
-                                {view.label}
-                              </span>
-                              {state.data[groupType].map((related) => (
-                                <label className="dv-option" key={related.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={memberOf(row, related)}
-                                    disabled={
-                                      reverse
-                                        ? !can(reverse.collection, related)
-                                        : !can(config.main, row)
-                                    }
-                                    onChange={(e) =>
-                                      setMember(row, related, e.target.checked)
-                                    }
-                                  />
-                                  {String(related.name)}
-                                </label>
-                              ))}
-                            </>
-                          )}
-                          <button
-                            hidden={!can(config.main, row)}
-                            onClick={() => {
-                              store.remove(config.main, row.id);
-                              setOpen(null);
+                        const color =
+                          colored?.[1].type === "choice"
+                            ? colored[1].options.find(
+                                (o) => o.name === row[colored[0]],
+                              )?.color
+                            : undefined;
+                        return (
+                          <li
+                            key={row.id}
+                            // Editing an entry opens it, which closes any other.
+                            onFocus={(e) => {
+                              if (!e.target.closest(".dv-more"))
+                                setEntry(occurrence);
                             }}
                           >
-                            Remove {noun(config.main)}
-                          </button>
-                        </Menu>
-                      </li>
-                    );
-                  })}
-                  {draft === `${viewIndex}:${group.id}` && (
-                    <DraftLine
-                      noun={noun(config.main)}
-                      candidates={
-                        groupType && group.id
-                          ? state.data[config.main].filter(
-                              (r) => !group.rows.includes(r),
-                            )
-                          : []
-                      }
-                      onCreate={(name) => add(config.main, group.id, name)}
-                      onPick={(row) => {
-                        const related = state.data[groupType!].find(
-                          (r) => r.id === group.id,
+                            {colored && field(row, colored[0], occurrence)}
+                            {config.line
+                              .filter(
+                                (name) =>
+                                  name !== colored?.[0] &&
+                                  name !== groupField &&
+                                  main[name].type !== "longtext",
+                              )
+                              .map((name, i) => (
+                                <Fragment key={name}>
+                                  {i === 1 &&
+                                    !(
+                                      main[name].type === "many" &&
+                                      main[name].summary
+                                    ) && (
+                                      <span className="dv-separator"> — </span>
+                                    )}
+                                  <span
+                                    style={
+                                      main[name].type === "text"
+                                        ? { color }
+                                        : undefined
+                                    }
+                                  >
+                                    {field(row, name, occurrence)}
+                                  </span>
+                                </Fragment>
+                              ))}
+                            {config.line
+                              .filter((name) => main[name].type === "longtext")
+                              .map((name) => (
+                                <Note key={name} entry={occurrence}>
+                                  <EditableText
+                                    multiline
+                                    readOnly={!can(config.main, row)}
+                                    placeholder={`Add ${name}`}
+                                    presenceKey={fieldKey(
+                                      config.main,
+                                      row.id,
+                                      name,
+                                    )}
+                                    value={String(row[name])}
+                                    label={`${noun(config.main)} ${name}`}
+                                    onChange={(v, b) =>
+                                      store.set(config.main, row.id, name, v, b)
+                                    }
+                                  />
+                                </Note>
+                              ))}
+                            <Menu
+                              id={`${occurrence}:actions`}
+                              className="dv-actions"
+                              ariaLabel={`Options for ${row.name}`}
+                              label="···"
+                            >
+                              {groupType && (
+                                <>
+                                  <span className="dv-menu-title">
+                                    {view.label}
+                                  </span>
+                                  {state.data[groupType].map((related) => (
+                                    <label
+                                      className="dv-option"
+                                      key={related.id}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={memberOf(row, related)}
+                                        disabled={
+                                          reverse
+                                            ? !can(reverse.collection, related)
+                                            : !can(config.main, row)
+                                        }
+                                        onChange={(e) =>
+                                          setMember(
+                                            row,
+                                            related,
+                                            e.target.checked,
+                                          )
+                                        }
+                                      />
+                                      {String(related.name)}
+                                    </label>
+                                  ))}
+                                </>
+                              )}
+                              <button
+                                hidden={!can(config.main, row)}
+                                onClick={() => {
+                                  store.remove(config.main, row.id);
+                                  setOpen(null);
+                                }}
+                              >
+                                Remove {noun(config.main)}
+                              </button>
+                            </Menu>
+                          </li>
                         );
-                        if (related) setMember(row, related, true);
-                      }}
-                      onClose={() => setDraft(null)}
-                    />
-                  )}
-                </ul>
-                <button
-                  className="dv-add-line"
-                  aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
-                  title="Add a line"
-                  hidden={readOnly || draft === `${viewIndex}:${group.id}`}
-                  onClick={() => setDraft(`${viewIndex}:${group.id}`)}
-                >
-                  ·
-                </button>
-              </section>
-            </Fragment>
-          ))}
-          {!arranged.some((g) => !g.id) && groupControl}
+                      })}
+                      {draft === `${viewIndex}:${group.id}` && (
+                        <DraftLine
+                          noun={noun(config.main)}
+                          candidates={
+                            groupType && group.id
+                              ? state.data[config.main].filter(
+                                  (r) => !group.rows.includes(r),
+                                )
+                              : []
+                          }
+                          onCreate={(name) => add(config.main, group.id, name)}
+                          onPick={(row) => {
+                            const related = state.data[groupType!].find(
+                              (r) => r.id === group.id,
+                            );
+                            if (related) setMember(row, related, true);
+                          }}
+                          onClose={() => setDraft(null)}
+                        />
+                      )}
+                    </ul>
+                    <button
+                      className="dv-add-line"
+                      aria-label={`Add ${noun(config.main)}${group.name ? ` under ${group.name}` : ""}`}
+                      title="Add a line"
+                      hidden={readOnly || draft === `${viewIndex}:${group.id}`}
+                      onClick={() => setDraft(`${viewIndex}:${group.id}`)}
+                    >
+                      ·
+                    </button>
+                  </section>
+                </Fragment>
+              ))}
+              {!arranged.some((g) => !g.id) && groupControl}
+            </>
+          )}
         </main>
       </OpenEntry.Provider>
     </MenuContext.Provider>
