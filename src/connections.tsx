@@ -58,9 +58,8 @@ type Props = {
   fields: string[];
   renderName(type: string, row: Entity): ReactNode;
   renderField(row: Entity, name: string): ReactNode;
-  renderGroupActions(row: Entity): ReactNode;
+  renderActions(type: string, row: Entity): ReactNode;
   canEdit(type: string, row: Entity): boolean;
-  onRemove(type: string, id: string): void;
   onSetConnection(row: Entity, field: string, value: ConnectionStrength): void;
   onCreate(type: string, name: string, project?: string): string;
 };
@@ -146,9 +145,8 @@ export function ConnectionEditor({
   fields,
   renderName,
   renderField,
-  renderGroupActions,
+  renderActions,
   canEdit,
-  onRemove,
   onSetConnection,
   onCreate,
 }: Props) {
@@ -633,7 +631,7 @@ export function ConnectionEditor({
                   <div className="dv-band-name" title={String(p.name)}>
                     {renderName(options.groupCollection, p)}
                   </div>
-                  {renderGroupActions(p)}
+                  {renderActions(options.groupCollection, p)}
                 </div>
               ))}
             </div>
@@ -686,17 +684,7 @@ export function ConnectionEditor({
                         </div>
                       ))}
                   </div>
-                  {selection?.type === "entry" &&
-                    selection.id === e.id &&
-                    !entryFixed &&
-                    canEdit(main, e) && (
-                      <button
-                        className="dv-band-remove"
-                        onClick={() => onRemove(main, e.id)}
-                      >
-                        Remove {entryLabel}
-                      </button>
-                    )}
+                  {renderActions(main, e)}
                 </div>
               ))}
             </div>

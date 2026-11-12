@@ -938,23 +938,22 @@ export function DocumentEditor({
               entryFixed={fixed(config.main)}
               groupFixed={fixed(connections.groupCollection)}
               renderName={text}
-              renderGroupActions={(row) =>
-                !fixed(connections.groupCollection) &&
-                can(connections.groupCollection, row) ? (
+              renderActions={(type, row) =>
+                !fixed(type) && can(type, row) ? (
                   <Menu
-                    id={`connections:${row.id}:actions`}
-                    className="dv-band-project-actions"
+                    id={`connections:${type}:${row.id}:actions`}
+                    className="dv-band-record-actions"
                     anchored
                     ariaLabel={`Options for ${row.name}`}
                     label={<span aria-hidden="true">⋯</span>}
                   >
                     <button
                       onClick={() => {
-                        store.remove(connections.groupCollection, row.id);
+                        store.remove(type, row.id);
                         setOpen(null);
                       }}
                     >
-                      Remove {noun(connections.groupCollection)}
+                      Remove {noun(type)}
                     </button>
                   </Menu>
                 ) : null
@@ -964,7 +963,6 @@ export function DocumentEditor({
               }
               fields={Object.keys(main).filter((name) => name !== "name")}
               canEdit={can}
-              onRemove={(type, id) => store.remove(type, id)}
               onSetConnection={(row, field, value) =>
                 store.set(connections.groupCollection, row.id, field, value)
               }

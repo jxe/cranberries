@@ -314,7 +314,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dv-band-project > .dv-band-project-actions {
+.dv-band-project > .dv-band-record-actions {
   position: relative;
   order: 2;
   flex: 0 0 16px;
@@ -322,12 +322,12 @@
   margin: 0;
   z-index: 2;
 }
-.dv-band-project > .dv-band-project-actions > .dv-trigger {
+.dv-band-project > .dv-band-record-actions > .dv-trigger {
   font-size: 17px;
   line-height: 18px;
   color: #999;
 }
-.dv-band-project > .dv-band-project-actions > .dv-trigger:hover {
+.dv-band-project > .dv-band-record-actions > .dv-trigger:hover {
   color: #333;
 }
 .dv-document .dv-band-box-select {
@@ -362,4 +362,23 @@
 }
 .dv-band-goal [data-band-text] {
   cursor: pointer;
+}
+
+.dv-band-entry > .dv-band-record-actions {
+  position: absolute;
+  right: 10px;
+  top: 5px;
+  z-index: 2;
+  line-height: 18px;
+}
+.dv-band-entry > .dv-band-record-actions > .dv-trigger {
+  font-size: 17px;
+  line-height: 18px;
+  color: #999;
+}
+.dv-band-entry > .dv-band-record-actions > .dv-trigger:hover {
+  color: #333;
+}
+.dv-band-entry .dv-band-name {
+  padding-right: 22px;
 }
