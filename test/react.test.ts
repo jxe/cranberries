@@ -138,10 +138,22 @@ test("persisted goal contributions override static seeds, including an explicit 
       },
     }),
   );
-  assert.match(html, /Goal contribution|Goal contributions/);
-  assert.match(
-    html,
-    /disabled=""[^>]*aria-label="Goal contribution for Person"|aria-label="Goal contribution for Person"[^>]*disabled=""/,
+  assert.doesNotMatch(html, /Connect Goal to a project/);
+  assert.doesNotMatch(html, /<select/);
+  store.readOnly = () => false;
+  const editableHtml = renderToString(
+    React.createElement(DocumentEditor, {
+      store,
+      initialView: "connections",
+      connections: {
+        groupCollection: "person",
+        memberField: "leads",
+        goals: [goal],
+      },
+    }),
   );
+  assert.match(editableHtml, /Connect Goal to a project/);
+  assert.match(editableHtml, /Connect Person to a goal/);
+  assert.doesNotMatch(editableHtml, /<select/);
   assert.doesNotMatch(html, /stroke-dasharray/);
 });

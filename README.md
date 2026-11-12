@@ -295,7 +295,10 @@ Supabase reference: https://supabase.com/docs/guides/realtime/postgres-changes
 `DocumentEditor` and `mountDocument` accept optional `connections` settings and
 `initialView: "connections"`. The settings name a `groupCollection`, the main
 collection's many-reference `memberField`, and `goals` with a `projectField` naming the project’s stored contribution
-choice. Selecting a project exposes those fields through the existing store.
+choice. Click a goal–project tube to change its strength or remove it. Drag between
+node ports, or activate the two ports in sequence, to make a new tube. New
+tubes start as Supporting and open the same strength menu. These actions use
+the existing store and server authorization. Escape cancels an unfinished tube.
 For read-only projections, a goal may instead supply static, ID-keyed `projects`
 strengths (`Primary`, `Supporting`, `Enabling`, or `Unmapped`).
 
