@@ -71,7 +71,7 @@
 .dv-band-node {
   position: relative;
   background: white;
-  border: 1px solid #ddd;
+  border: 1px solid #e8e8e8;
   border-radius: 5px;
   flex-shrink: 0;
   padding: 10px 12px;
@@ -84,7 +84,7 @@
   background: #f5f6f7;
 }
 .dv-band-node.related {
-  border-color: #aaa;
+  border-color: #dedede;
 }
 .dv-band-node.dim {
   opacity: 0.45;
@@ -97,7 +97,8 @@
 }
 .dv-band-goal-description {
   display: block;
-  font-size: 11px;
+  padding-right: 8px;
+  font-size: 13px;
   line-height: 1.5;
   color: #777;
   margin-top: 5px;
@@ -156,10 +157,7 @@
 .dv-band-add button {
   font-size: 12px;
 }
-.dv-band-node .portrait-hoop {
-  transform: scale(0.7);
-  margin-right: -3px;
-}
+
 /* Tubes have a generous invisible hit area; node bodies remain editable. */
 .dv-band-hit {
   pointer-events: stroke;
@@ -277,9 +275,7 @@
   margin: 0;
   line-height: 1.25;
 }
-.dv-band-entry .dv-band-fields .dv-trigger .person-name {
-  display: none;
-}
+
 .dv-band-entry .dv-member {
   margin-right: 5px;
 }
@@ -381,4 +377,34 @@
 }
 .dv-band-entry .dv-band-name {
   padding-right: 22px;
+}
+
+.dv-band-entry .dv-member-icon {
+  display: inline-flex;
+  position: relative;
+  width: 21px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+.dv-band-entry .dv-member-icon > .person-name {
+  position: absolute;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  transform: scale(0.68);
+  transform-origin: center;
+}
+.dv-band-entry .dv-member-icon .portrait-hoop {
+  margin: 0;
+  vertical-align: 0;
+}
+.dv-band-entry .dv-member-icon > .dv-avatar {
+  width: 19px;
+  height: 19px;
+  margin: 0;
+  top: 0;
+  font-size: 9px;
 }

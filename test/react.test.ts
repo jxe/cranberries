@@ -185,3 +185,85 @@ test("goal selection orders primary projects first and ignores legacy enabling l
   );
   assert.equal(connectionStrength(goal, projects[1]), "Unmapped");
 });
+
+test("a selected project's related entries follow status priority before unrelated entries", async () => {
+  const { sortConnectionEntries } = await import("../src/connections");
+  const options = {
+    groupCollection: "project",
+    memberField: "projects",
+    entryOrder: {
+      field: "status",
+      values: ["Current focus", "Bad", "Improving", "Good"],
+    },
+    goals: [],
+  };
+  const rows = [
+    {
+      id: "dim",
+      name: "A dim focus",
+      status: "Current focus",
+      projects: ["other"],
+    },
+    { id: "good", name: "Good", status: "Good", projects: ["p"] },
+    { id: "unknown", name: "Unknown", status: "Not recorded", projects: ["p"] },
+    {
+      id: "improving",
+      name: "Improving",
+      status: "Improving",
+      projects: ["p"],
+    },
+    { id: "bad", name: "Bad", status: "Bad", projects: ["p"] },
+    { id: "focus", name: "Focus", status: "Current focus", projects: ["p"] },
+  ];
+  assert.deepEqual(
+    sortConnectionEntries(rows, [], options, { type: "project", id: "p" }).map(
+      (e) => e.id,
+    ),
+    ["focus", "bad", "improving", "good", "unknown", "dim"],
+  );
+  assert.equal(rows[0].id, "dim");
+});
+
+test("a goal ranks entries by their strongest project contribution, then status", async () => {
+  const { sortConnectionEntries } = await import("../src/connections");
+  const options = {
+    groupCollection: "project",
+    memberField: "projects",
+    entryOrder: {
+      field: "status",
+      values: ["Current focus", "Bad", "Improving", "Good"],
+    },
+    goals: [
+      { id: "g", label: "Goal", title: "Goal", projectField: "strength" },
+    ],
+  };
+  const projects = [
+    { id: "p", strength: "Primary" },
+    { id: "s", strength: "Supporting" },
+    { id: "u", strength: "Unmapped" },
+  ];
+  const rows = [
+    {
+      id: "unrelated",
+      name: "A unrelated",
+      status: "Current focus",
+      projects: ["u"],
+    },
+    {
+      id: "support",
+      name: "Support",
+      status: "Current focus",
+      projects: ["s"],
+    },
+    { id: "good", name: "Good", status: "Good", projects: ["p"] },
+    { id: "shared", name: "Shared", status: "Bad", projects: ["p", "s"] },
+    { id: "focus", name: "Focus", status: "Current focus", projects: ["p"] },
+  ];
+  assert.deepEqual(
+    sortConnectionEntries(rows, projects, options, {
+      type: "goal",
+      id: "g",
+    }).map((e) => e.id),
+    ["focus", "shared", "good", "support", "unrelated"],
+  );
+});

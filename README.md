@@ -321,3 +321,9 @@ the default with `initialView: "connections"`. Clicking a selected node again
 clears selection; node backgrounds select while names and field controls keep
 their editing behavior. A selected goal orders groups Primary, then Supporting,
 then unmapped, retaining record order within each strength.
+
+A host may provide `entryOrder: { field, values }` to rank a project's related
+entries by status before unrelated entries. With a goal selected, entries from
+Primary groups precede Supporting groups; status order applies within each
+tier. A shared entry uses its strongest mapped group. Compact people pickers
+show portraits with accessible names and hover titles; their menus retain names.

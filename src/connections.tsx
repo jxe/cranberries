@@ -12,6 +12,7 @@ export type ConnectionViewOptions = {
   label?: string;
   groupCollection: string;
   memberField: string;
+  entryOrder?: { field: string; values: string[] };
   goals: {
     id: string;
     label: string;
@@ -75,6 +76,47 @@ export function sortConnectionProjects(
   return [...projects].sort(
     (a, b) =>
       rank[connectionStrength(goal, a)] - rank[connectionStrength(goal, b)],
+  );
+}
+export function sortConnectionEntries(
+  entries: Entity[],
+  projects: Entity[],
+  options: ConnectionViewOptions,
+  selection: Selection,
+) {
+  const goal =
+    selection?.type === "goal"
+      ? options.goals.find((g) => g.id === selection.id)
+      : undefined;
+  const byProject = new Map(projects.map((p) => [p.id, p]));
+  const strengthRank = { Primary: 0, Supporting: 1, Unmapped: 2 };
+  const relevance = (entry: Entity) => {
+    const ids = members(entry, options.memberField);
+    if (selection?.type === "project")
+      return ids.includes(selection.id) ? 0 : 2;
+    if (selection?.type === "goal")
+      return Math.min(
+        2,
+        ...ids.map((id) => {
+          const p = byProject.get(id);
+          return goal && p ? strengthRank[connectionStrength(goal, p)] : 2;
+        }),
+      );
+    if (selection?.type === "entry") return entry.id === selection.id ? 0 : 2;
+    return 0;
+  };
+  const status = (entry: Entity) => {
+    const order = options.entryOrder;
+    if (!order) return 0;
+    const index = order.values.indexOf(String(entry[order.field]));
+    return index < 0 ? order.values.length : index;
+  };
+  const useStatus = selection?.type === "goal" || selection?.type === "project";
+  return [...entries].sort(
+    (a, b) =>
+      relevance(a) - relevance(b) ||
+      (useStatus && relevance(a) < 2 ? status(a) - status(b) : 0) ||
+      String(a.name).localeCompare(String(b.name)),
   );
 }
 function AddRecord({
@@ -342,11 +384,16 @@ export function ConnectionEditor({
       return;
     choose(type, id);
   };
-  const sortedEntries = [...entries].sort(
-    (a, b) =>
-      Number(activeEntries.has(b.id)) - Number(activeEntries.has(a.id)) ||
-      String(a.name).localeCompare(String(b.name)),
+  const sortedEntries = sortConnectionEntries(
+    entries,
+    projects,
+    options,
+    selection,
   );
+  const entryList = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (entryList.current) entryList.current.scrollTop = 0;
+  }, [selection?.type, selection?.id]);
   const choose = (type: NonNullable<Selection>["type"], id: string) => {
     if (!suppress.current) {
       putWire(null);
@@ -652,7 +699,7 @@ export function ConnectionEditor({
               {entryLabel[0].toUpperCase() + entryLabel.slice(1)}s ·{" "}
               {entries.length}
             </h2>
-            <div className="dv-band-list">
+            <div className="dv-band-list" ref={entryList}>
               {sortedEntries.map((e) => (
                 <div
                   key={e.id}

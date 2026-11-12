@@ -712,9 +712,26 @@ export function DocumentEditor({
             ? `${members.length} ${d.label ?? noun(d.of)}${members.length === 1 ? "" : "s"}`
             : members.length
               ? members.map((r) => (
-                  <span className="dv-member" key={r.id}>
-                    {renderPrefix(d.of, r)}
-                    {label(d.of, r)}
+                  <span
+                    className={
+                      inline && person(d.of)
+                        ? "dv-member dv-member-icon"
+                        : "dv-member"
+                    }
+                    key={r.id}
+                    title={inline && person(d.of) ? String(r.name) : undefined}
+                    aria-label={
+                      inline && person(d.of) ? String(r.name) : undefined
+                    }
+                  >
+                    {inline && person(d.of) ? (
+                      (renderPrefix(d.of, r) ?? <Avatar person={r} />)
+                    ) : (
+                      <>
+                        {renderPrefix(d.of, r)}
+                        {label(d.of, r)}
+                      </>
+                    )}
                   </span>
                 ))
               : `No ${d.label ?? noun(d.of)}`
