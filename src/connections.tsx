@@ -7,8 +7,7 @@ import {
 } from "react";
 import type { Data, Entity } from "./model";
 
-export type ConnectionStrength =
-  "Primary" | "Supporting" | "Enabling" | "Unmapped";
+export type ConnectionStrength = "Primary" | "Supporting" | "Unmapped";
 export type ConnectionViewOptions = {
   label?: string;
   groupCollection: string;
@@ -28,9 +27,7 @@ export function connectionStrength(
   const value = goal.projectField
     ? project[goal.projectField]
     : goal.projects?.[project.id];
-  return value === "Primary" || value === "Supporting" || value === "Enabling"
-    ? value
-    : "Unmapped";
+  return value === "Primary" || value === "Supporting" ? value : "Unmapped";
 }
 type WireEnd = { type: "goal" | "project"; id: string };
 type Wire = {
@@ -69,6 +66,30 @@ type Props = {
 const members = (row: Entity, field: string): string[] =>
   Array.isArray(row[field]) ? (row[field] as string[]) : [];
 
+export function sortConnectionProjects(
+  projects: Entity[],
+  goal?: ConnectionViewOptions["goals"][number],
+) {
+  if (!goal) return projects;
+  const rank = { Primary: 0, Supporting: 1, Unmapped: 2 };
+  return [...projects].sort(
+    (a, b) =>
+      rank[connectionStrength(goal, a)] - rank[connectionStrength(goal, b)],
+  );
+}
+function SelectionIcon({ selected }: { selected: boolean }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M6 2H2v4M10 2h4v4M2 10v4h4M14 10v4h-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      {selected && <circle cx="8" cy="8" r="2" fill="currentColor" />}
+    </svg>
+  );
+}
 function AddRecord({
   label,
   onAdd,
@@ -77,6 +98,18 @@ function AddRecord({
   onAdd(name: string): void;
 }) {
   const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
+  if (!adding)
+    return (
+      <button
+        className="dv-band-add-toggle"
+        aria-label={`Add ${label}`}
+        title={`Add ${label}`}
+        onClick={() => setAdding(true)}
+      >
+        +
+      </button>
+    );
   return (
     <form
       className="dv-band-add"
@@ -85,9 +118,22 @@ function AddRecord({
         if (!name.trim()) return;
         onAdd(name.trim());
         setName("");
+        setAdding(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setName("");
+          setAdding(false);
+        }
+      }}
+      onBlur={(e) => {
+        if (!name.trim() && !e.currentTarget.contains(e.relatedTarget))
+          setAdding(false);
       }}
     >
       <input
+        autoFocus
         aria-label={`New ${label} name`}
         placeholder={`New ${label}`}
         value={name}
@@ -297,6 +343,26 @@ export function ConnectionEditor({
     selection?.type === "project"
       ? projects.find((p) => p.id === selection.id)
       : undefined;
+  const sortedProjects = sortConnectionProjects(
+    projects,
+    selection?.type === "goal"
+      ? options.goals.find((g) => g.id === selection.id)
+      : undefined,
+  );
+  const selectBox = (
+    type: NonNullable<Selection>["type"],
+    id: string,
+    e: { target: EventTarget },
+  ) => {
+    if (
+      !(e.target instanceof Element) ||
+      e.target.closest(
+        'button,input,select,textarea,a,label,[role="textbox"],[data-menu],[data-band-text]',
+      )
+    )
+      return;
+    choose(type, id);
+  };
   const sortedEntries = [...entries].sort(
     (a, b) =>
       Number(activeEntries.has(b.id)) - Number(activeEntries.has(a.id)) ||
@@ -306,7 +372,9 @@ export function ConnectionEditor({
     if (!suppress.current) {
       putWire(null);
       setTubeMenu(null);
-      setSelection({ type, id });
+      setSelection((current) =>
+        current?.type === type && current.id === id ? null : { type, id },
+      );
     }
   };
   const className = (
@@ -314,7 +382,7 @@ export function ConnectionEditor({
     id: string,
     related: boolean,
   ) =>
-    `dv-band-node${selection?.type === type && selection.id === id ? " selected" : related ? " related" : " dim"}`;
+    `dv-band-node dv-band-${type}${selection?.type === type && selection.id === id ? " selected" : related ? " related" : " dim"}`;
   useEffect(() => {
     if (
       selection &&
@@ -438,21 +506,6 @@ export function ConnectionEditor({
   };
   return (
     <div className="dv-band-view">
-      <div className="dv-band-toolbar">
-        <span>
-          Click a tube to edit it. Drag between a goal and a project port to
-          connect them.
-        </span>
-        <button
-          onClick={() => {
-            setSelection(null);
-            setTubeMenu(null);
-            putWire(null);
-          }}
-        >
-          Clear selection
-        </button>
-      </div>
       <div className="dv-band-scroll">
         <div
           className="dv-band-stage"
@@ -542,15 +595,7 @@ export function ConnectionEditor({
                     d={p.d}
                     fill="none"
                     stroke={p.strength === "Primary" ? "#333" : "#999"}
-                    strokeWidth={
-                      p.active
-                        ? p.strength === "Primary"
-                          ? 4
-                          : p.strength === "Enabling"
-                            ? 1.5
-                            : 2.5
-                        : 1
-                    }
+                    strokeWidth={p.strength === "Primary" ? 4 : 2.5}
                     opacity={p.active ? 0.65 : 0.08}
                   />
                   {editable && (
@@ -594,6 +639,7 @@ export function ConnectionEditor({
                   key={g.id}
                   data-band-node={`goal:${g.id}`}
                   className={className("goal", g.id, activeGoals.has(g.id))}
+                  onClick={(e) => selectBox("goal", g.id, e)}
                 >
                   {g.projectField &&
                     port(
@@ -602,16 +648,26 @@ export function ConnectionEditor({
                       false,
                     )}
                   <button
-                    className="dv-band-select"
+                    className="dv-band-handle"
                     data-band-handle
-                    onClick={() => choose("goal", g.id)}
+                    aria-label={`Select ${g.label}`}
                     aria-pressed={
                       selection?.type === "goal" && selection.id === g.id
                     }
+                    onClick={() => choose("goal", g.id)}
                   >
-                    <strong>{g.label}</strong>
-                    <small>{g.title}</small>
+                    <SelectionIcon
+                      selected={
+                        selection?.type === "goal" && selection.id === g.id
+                      }
+                    />
                   </button>
+                  <strong className="dv-band-goal-title" data-band-text>
+                    {g.label}
+                  </strong>
+                  <small className="dv-band-goal-description" data-band-text>
+                    {g.title}
+                  </small>
                 </div>
               ))}
             </div>
@@ -619,7 +675,7 @@ export function ConnectionEditor({
           <div className="dv-band-column">
             <h2>{groupLabel[0].toUpperCase() + groupLabel.slice(1)}s</h2>
             <div className="dv-band-list">
-              {projects.map((p) => (
+              {sortedProjects.map((p) => (
                 <div
                   key={p.id}
                   data-band-node={`project:${p.id}`}
@@ -628,6 +684,7 @@ export function ConnectionEditor({
                     p.id,
                     activeProjects.has(p.id),
                   )}
+                  onClick={(e) => selectBox("project", p.id, e)}
                 >
                   {options.goals.some((g) => g.projectField) &&
                     port(
@@ -638,13 +695,17 @@ export function ConnectionEditor({
                   <button
                     className="dv-band-handle"
                     data-band-handle
-                    aria-label={`Trace ${p.name}`}
+                    aria-label={`Select ${p.name}`}
                     aria-pressed={
                       selection?.type === "project" && selection.id === p.id
                     }
                     onClick={() => choose("project", p.id)}
                   >
-                    ↗
+                    <SelectionIcon
+                      selected={
+                        selection?.type === "project" && selection.id === p.id
+                      }
+                    />
                   </button>
                   <div className="dv-band-name">
                     {renderName(options.groupCollection, p)}
@@ -686,17 +747,22 @@ export function ConnectionEditor({
                   key={e.id}
                   data-band-node={`entry:${e.id}`}
                   className={className("entry", e.id, activeEntries.has(e.id))}
+                  onClick={(event) => selectBox("entry", e.id, event)}
                 >
                   <button
                     className="dv-band-handle"
                     data-band-handle
-                    aria-label={`Trace ${e.name}`}
+                    aria-label={`Select ${e.name}`}
                     aria-pressed={
                       selection?.type === "entry" && selection.id === e.id
                     }
                     onClick={() => choose("entry", e.id)}
                   >
-                    ↗
+                    <SelectionIcon
+                      selected={
+                        selection?.type === "entry" && selection.id === e.id
+                      }
+                    />
                   </button>
                   <div className="dv-band-name">{renderName(main, e)}</div>
                   <div className="dv-band-fields">
@@ -709,7 +775,6 @@ export function ConnectionEditor({
                       )
                       .map((f) => (
                         <div className="dv-band-field" key={f}>
-                          <span className="dv-band-field-label">{f}</span>
                           {renderField(e, f)}
                         </div>
                       ))}
@@ -774,20 +839,18 @@ export function ConnectionEditor({
               <strong>
                 {goal.label} → {String(project.name)}
               </strong>
-              {(["Primary", "Supporting", "Enabling"] as const).map(
-                (strength) => (
-                  <button
-                    key={strength}
-                    aria-pressed={current === strength}
-                    onClick={() => {
-                      onSetConnection(project, goal.projectField!, strength);
-                      setTubeMenu(null);
-                    }}
-                  >
-                    {strength}
-                  </button>
-                ),
-              )}
+              {(["Primary", "Supporting"] as const).map((strength) => (
+                <button
+                  key={strength}
+                  aria-pressed={current === strength}
+                  onClick={() => {
+                    onSetConnection(project, goal.projectField!, strength);
+                    setTubeMenu(null);
+                  }}
+                >
+                  {strength}
+                </button>
+              ))}
               <button
                 className="dv-band-tube-remove"
                 onClick={() => {
@@ -800,9 +863,6 @@ export function ConnectionEditor({
             </div>
           );
         })()}
-      <div className="dv-band-legend">
-        Black: primary · Grey: supporting · Thin grey: enabling
-      </div>
     </div>
   );
 }

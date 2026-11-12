@@ -15,17 +15,6 @@
 .dv-connections-document nav {
   gap: 20px;
 }
-.dv-band-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 15px;
-  color: #888;
-  font-size: 11px;
-  margin: 12px 0;
-}
-.dv-band-toolbar button {
-  white-space: nowrap;
-}
 .dv-band-scroll {
   overflow-x: auto;
 }
@@ -36,7 +25,7 @@
   grid-template-columns: 260px 260px minmax(320px, 1fr);
   gap: clamp(65px, 7vw, 135px);
   min-width: 1030px;
-  height: max(600px, calc(100vh - 195px));
+  height: max(600px, calc(100vh - 140px));
 }
 .dv-band-lines {
   position: absolute;
@@ -100,20 +89,16 @@
 .dv-band-node.dim {
   opacity: 0.45;
 }
-.dv-document .dv-band-select {
-  width: 100%;
-  text-align: left;
-  line-height: 1.5;
-  cursor: grab;
-}
-.dv-band-select strong {
+.dv-band-goal-title {
   font-size: 12px;
   font-weight: 500;
   display: block;
+  margin-right: 16px;
 }
-.dv-band-select small {
+.dv-band-goal-description {
   display: block;
   font-size: 11px;
+  line-height: 1.5;
   color: #777;
   margin-top: 5px;
 }
@@ -121,7 +106,13 @@
   float: right;
   color: #999;
   cursor: grab;
-  padding-left: 7px;
+  margin-left: 7px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
 }
 .dv-band-name {
   font-size: 12px;
@@ -137,10 +128,6 @@
   gap: 8px;
   margin-top: 5px;
   flex-wrap: wrap;
-}
-.dv-band-field-label {
-  font-size: 10px;
-  color: #999;
 }
 .dv-band-node .dv-dot {
   width: 6px;
@@ -168,8 +155,7 @@
 .dv-band-add {
   display: flex;
   gap: 8px;
-  padding: 8px 5px;
-  border-top: 1px solid #eee;
+  padding: 6px 5px;
 }
 .dv-band-add input {
   min-width: 0;
@@ -181,11 +167,6 @@
 }
 .dv-band-add button {
   font-size: 12px;
-}
-.dv-band-legend {
-  color: #999;
-  font-size: 10px;
-  margin-top: 12px;
 }
 .dv-band-node.dragging {
   z-index: 5;
@@ -251,9 +232,6 @@
 .dv-band-column:nth-of-type(2) .dv-band-name {
   padding-left: 9px;
 }
-.dv-band-select {
-  padding-right: 8px !important;
-}
 .dv-band-tube-menu {
   position: fixed;
   z-index: 50;
@@ -292,4 +270,59 @@
   border-top: 1px solid #eee;
   color: #a35f5f;
   margin-top: 4px;
+}
+
+.dv-band-node {
+  cursor: pointer;
+}
+.dv-band-node .dv-text {
+  cursor: text;
+}
+.dv-document .dv-band-handle[aria-pressed="true"] {
+  color: #333;
+}
+.dv-band-entry {
+  padding: 7px 10px;
+  margin-bottom: 5px;
+  min-height: 0;
+}
+.dv-band-entry .dv-band-name {
+  line-height: 1.35;
+  font-weight: 400;
+}
+.dv-band-entry .dv-band-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  line-height: 1.25;
+  margin-top: 4px;
+}
+.dv-band-entry .dv-band-field {
+  display: inline-flex;
+  gap: 0;
+  margin: 0;
+  line-height: 1.25;
+}
+.dv-band-entry .dv-band-fields .dv-trigger .person-name {
+  display: none;
+}
+.dv-band-entry .dv-member {
+  margin-right: 5px;
+}
+.dv-document .dv-band-add-toggle {
+  align-self: flex-start;
+  font-size: 17px;
+  font-weight: 300;
+  color: #aaa;
+  padding: 1px 8px;
+  margin: 2px 0;
+  line-height: 22px;
+}
+.dv-document .dv-band-add-toggle:hover {
+  color: #444;
+}
+
+.dv-band-node [data-band-text] {
+  cursor: text;
 }

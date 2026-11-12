@@ -816,19 +816,24 @@ export function DocumentEditor({
               ))}
             <nav aria-label="Group document">
               {[
-                ...config.views,
                 ...(connections
-                  ? [{ label: connections.label ?? "Connections" }]
+                  ? [
+                      {
+                        label: connections.label ?? "Connections",
+                        index: config.views.length,
+                      },
+                    ]
                   : []),
-              ].map((v, i) => (
+                ...config.views.map((v, index) => ({ ...v, index })),
+              ].map((v) => (
                 <button
-                  key={i}
-                  aria-pressed={viewIndex === i}
+                  key={v.index}
+                  aria-pressed={viewIndex === v.index}
                   onClick={() => {
                     setOpen(null);
                     setDraft(null);
                     setEntry(null);
-                    setView(i);
+                    setView(v.index);
                   }}
                 >
                   {v.label}

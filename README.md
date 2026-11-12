@@ -300,7 +300,8 @@ node ports, or activate the two ports in sequence, to make a new tube. New
 tubes start as Supporting and open the same strength menu. These actions use
 the existing store and server authorization. Escape cancels an unfinished tube.
 For read-only projections, a goal may instead supply static, ID-keyed `projects`
-strengths (`Primary`, `Supporting`, `Enabling`, or `Unmapped`).
+strengths (`Primary`, `Supporting`, or `Unmapped`). Legacy `Enabling` values
+are treated as unmapped in this view.
 
 The view reuses the editor's text, choice, membership, account, presence, draft,
 and save controls. Records are shared with the ordinary views; additions,
@@ -314,3 +315,9 @@ the data shape with partial rows (`{ project: [{ id, goalField: "Primary" }] }`)
 It only applies fields absent from the previous config, so rerunning it preserves
 edits, including an explicit default. Configuration, data initialization and
 its revision/change log commit atomically. Missing record IDs are skipped.
+
+The Connections tab precedes the document arrangements. The host can make it
+the default with `initialView: "connections"`. Clicking a selected node again
+clears selection; node backgrounds select while names and field controls keep
+their editing behavior. A selected goal orders groups Primary, then Supporting,
+then unmapped, retaining record order within each strength.

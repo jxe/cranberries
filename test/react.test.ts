@@ -49,7 +49,7 @@ test("connections reuse field controls and suppress every mutation for visitors"
     }),
   );
   assert.match(html, /A complete goal/);
-  assert.match(html, /Trace Person/);
+  assert.match(html, /Select Person/);
   assert.match(html, /status for Task/);
   assert.match(html, /aria-readonly="true"/);
   assert.match(
@@ -80,8 +80,9 @@ test("connections expose creation and editing through the existing store", () =>
       },
     }),
   );
-  assert.match(html, /New task name/);
-  assert.match(html, /New person name/);
+  assert.match(html, /aria-label="Add task"/);
+  assert.doesNotMatch(html, /New task name/);
+  assert.match(html, /aria-label="Add person"/);
   assert.match(html.replace(/<!--.*?-->/g, ""), /Remove person/);
   assert.match(html, /status for Task/);
   assert.doesNotMatch(html, /excellence|assessment|project name/);
@@ -156,4 +157,30 @@ test("persisted goal contributions override static seeds, including an explicit 
   assert.match(editableHtml, /Connect Person to a goal/);
   assert.doesNotMatch(editableHtml, /<select/);
   assert.doesNotMatch(html, /stroke-dasharray/);
+});
+
+test("goal selection orders primary projects first and ignores legacy enabling links", async () => {
+  const { sortConnectionProjects, connectionStrength } =
+    await import("../src/connections");
+  const goal = {
+    id: "g",
+    label: "Goal",
+    title: "Full goal",
+    projectField: "goal",
+  };
+  const projects = [
+    { id: "a", goal: "Supporting" },
+    { id: "b", goal: "Enabling" },
+    { id: "c", goal: "Primary" },
+    { id: "d", goal: "Primary" },
+  ];
+  assert.deepEqual(
+    sortConnectionProjects(projects, goal).map((p) => p.id),
+    ["c", "d", "a", "b"],
+  );
+  assert.deepEqual(
+    projects.map((p) => p.id),
+    ["a", "b", "c", "d"],
+  );
+  assert.equal(connectionStrength(goal, projects[1]), "Unmapped");
 });
