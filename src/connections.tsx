@@ -58,6 +58,7 @@ type Props = {
   fields: string[];
   renderName(type: string, row: Entity): ReactNode;
   renderField(row: Entity, name: string): ReactNode;
+  renderGroupActions(row: Entity): ReactNode;
   canEdit(type: string, row: Entity): boolean;
   onRemove(type: string, id: string): void;
   onSetConnection(row: Entity, field: string, value: ConnectionStrength): void;
@@ -75,19 +76,6 @@ export function sortConnectionProjects(
   return [...projects].sort(
     (a, b) =>
       rank[connectionStrength(goal, a)] - rank[connectionStrength(goal, b)],
-  );
-}
-function SelectionIcon({ selected }: { selected: boolean }) {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M6 2H2v4M10 2h4v4M2 10v4h4M14 10v4h-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-      {selected && <circle cx="8" cy="8" r="2" fill="currentColor" />}
-    </svg>
   );
 }
 function AddRecord({
@@ -158,6 +146,7 @@ export function ConnectionEditor({
   fields,
   renderName,
   renderField,
+  renderGroupActions,
   canEdit,
   onRemove,
   onSetConnection,
@@ -287,14 +276,6 @@ export function ConnectionEditor({
   }, [tubeMenu]);
   const stage = useRef<HTMLDivElement>(null);
   const suppress = useRef(false);
-  const drag = useRef<{
-    node: HTMLElement;
-    x: number;
-    y: number;
-    id: number;
-    moved: boolean;
-  } | null>(null);
-  const redraw = useRef(() => {});
   const activeProjects = new Set<string>(),
     activeGoals = new Set<string>(),
     activeEntries = new Set<string>();
@@ -468,7 +449,6 @@ export function ConnectionEditor({
           draw();
         });
     };
-    redraw.current = schedule;
     const observer = new ResizeObserver(schedule);
     observer.observe(root);
     root
@@ -483,47 +463,12 @@ export function ConnectionEditor({
     };
   }, [data, options, selection]);
 
-  const release = () => {
-    if (!drag.current) return;
-    const { node, moved } = drag.current;
-    drag.current = null;
-    if (!moved) return;
-    suppress.current = true;
-    node.classList.remove("dragging");
-    node.classList.add("returning");
-    node.style.transform = "";
-    const until = performance.now() + 500;
-    const animate = () => {
-      redraw.current();
-      if (performance.now() < until && node.isConnected)
-        requestAnimationFrame(animate);
-      else node.classList.remove("returning");
-    };
-    animate();
-    setTimeout(() => {
-      suppress.current = false;
-    }, 60);
-  };
   return (
     <div className="dv-band-view">
       <div className="dv-band-scroll">
         <div
           className="dv-band-stage"
           ref={stage}
-          onPointerDown={(e) => {
-            const handle = (e.target as Element).closest("[data-band-handle]");
-            if (!handle || e.button !== 0 || e.pointerType === "touch") return;
-            putWire(null);
-            const node = handle.closest<HTMLElement>("[data-band-node]")!;
-            drag.current = {
-              node,
-              x: e.clientX,
-              y: e.clientY,
-              id: e.pointerId,
-              moved: false,
-            };
-            handle.setPointerCapture(e.pointerId);
-          }}
           onPointerMove={(e) => {
             if (wireRef.current) {
               const box = stage.current!.getBoundingClientRect();
@@ -540,15 +485,6 @@ export function ConnectionEditor({
               });
               return;
             }
-            const d = drag.current;
-            if (!d || e.pointerId !== d.id) return;
-            const x = e.clientX - d.x,
-              y = e.clientY - d.y;
-            if (!d.moved && Math.hypot(x, y) < 4) return;
-            d.moved = true;
-            d.node.classList.add("dragging");
-            d.node.style.transform = `translate(${Math.tanh(x / 100) * 50}px,${Math.tanh(y / 100) * 65}px)`;
-            redraw.current();
           }}
           onPointerUp={(e) => {
             const pointer = wirePointer.current;
@@ -563,12 +499,11 @@ export function ConnectionEditor({
               setTimeout(() => {
                 suppress.current = false;
               }, 80);
-            } else if (!wireRef.current) release();
+            }
           }}
           onPointerCancel={() => {
             wirePointer.current = null;
             putWire(null);
-            release();
           }}
         >
           <svg
@@ -648,20 +583,14 @@ export function ConnectionEditor({
                       false,
                     )}
                   <button
-                    className="dv-band-handle"
-                    data-band-handle
+                    type="button"
+                    className="dv-band-box-select"
                     aria-label={`Select ${g.label}`}
                     aria-pressed={
                       selection?.type === "goal" && selection.id === g.id
                     }
                     onClick={() => choose("goal", g.id)}
-                  >
-                    <SelectionIcon
-                      selected={
-                        selection?.type === "goal" && selection.id === g.id
-                      }
-                    />
-                  </button>
+                  />
                   <strong className="dv-band-goal-title" data-band-text>
                     {g.label}
                   </strong>
@@ -693,34 +622,18 @@ export function ConnectionEditor({
                       !canEdit(options.groupCollection, p),
                     )}
                   <button
-                    className="dv-band-handle"
-                    data-band-handle
+                    type="button"
+                    className="dv-band-box-select"
                     aria-label={`Select ${p.name}`}
                     aria-pressed={
                       selection?.type === "project" && selection.id === p.id
                     }
                     onClick={() => choose("project", p.id)}
-                  >
-                    <SelectionIcon
-                      selected={
-                        selection?.type === "project" && selection.id === p.id
-                      }
-                    />
-                  </button>
-                  <div className="dv-band-name">
+                  />
+                  <div className="dv-band-name" title={String(p.name)}>
                     {renderName(options.groupCollection, p)}
                   </div>
-                  {selection?.type === "project" &&
-                    selection.id === p.id &&
-                    !groupFixed &&
-                    canEdit(options.groupCollection, p) && (
-                      <button
-                        className="dv-band-remove"
-                        onClick={() => onRemove(options.groupCollection, p.id)}
-                      >
-                        Remove {groupLabel}
-                      </button>
-                    )}
+                  {renderGroupActions(p)}
                 </div>
               ))}
             </div>
@@ -750,20 +663,14 @@ export function ConnectionEditor({
                   onClick={(event) => selectBox("entry", e.id, event)}
                 >
                   <button
-                    className="dv-band-handle"
-                    data-band-handle
+                    type="button"
+                    className="dv-band-box-select"
                     aria-label={`Select ${e.name}`}
                     aria-pressed={
                       selection?.type === "entry" && selection.id === e.id
                     }
                     onClick={() => choose("entry", e.id)}
-                  >
-                    <SelectionIcon
-                      selected={
-                        selection?.type === "entry" && selection.id === e.id
-                      }
-                    />
-                  </button>
+                  />
                   <div className="dv-band-name">{renderName(main, e)}</div>
                   <div className="dv-band-fields">
                     {fields

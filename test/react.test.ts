@@ -83,7 +83,8 @@ test("connections expose creation and editing through the existing store", () =>
   assert.match(html, /aria-label="Add task"/);
   assert.doesNotMatch(html, /New task name/);
   assert.match(html, /aria-label="Add person"/);
-  assert.match(html.replace(/<!--.*?-->/g, ""), /Remove person/);
+  assert.match(html, /Options for Person/);
+  assert.doesNotMatch(html.replace(/<!--.*?-->/g, ""), /Remove person/);
   assert.match(html, /status for Task/);
   assert.doesNotMatch(html, /excellence|assessment|project name/);
 });

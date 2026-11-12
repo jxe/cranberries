@@ -38,8 +38,10 @@ function Menu({
   ariaLabel,
   presenceKey,
   disabled = false,
+  anchored = false,
 }: {
   disabled?: boolean;
+  anchored?: boolean;
   id: string;
   label: ReactNode;
   children: ReactNode;
@@ -48,6 +50,7 @@ function Menu({
   presenceKey?: string;
 }) {
   const { open, setOpen } = useContext(MenuContext);
+  const [position, setPosition] = useState<{ left: number; top: number }>();
   return (
     <span
       className={`dv-picker ${className}`}
@@ -60,12 +63,39 @@ function Menu({
         aria-label={ariaLabel}
         aria-expanded={open === id}
         disabled={disabled}
-        onClick={() => setOpen(open === id ? null : id)}
+        onClick={(e) => {
+          if (anchored) {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPosition({
+              left: Math.max(
+                8,
+                Math.min(r.right - 180, window.innerWidth - 200),
+              ),
+              top: Math.min(r.bottom + 4, window.innerHeight - 60),
+            });
+          }
+          setOpen(open === id ? null : id);
+        }}
       >
         {label}
       </button>
       {open === id && (
-        <span className="dv-menu" role="group" aria-label={ariaLabel}>
+        <span
+          className="dv-menu"
+          role="group"
+          aria-label={ariaLabel}
+          style={
+            anchored && position
+              ? {
+                  position: "fixed",
+                  left: position.left,
+                  top: position.top,
+                  right: "auto",
+                  minWidth: 180,
+                }
+              : undefined
+          }
+        >
           {children}
         </span>
       )}
@@ -908,6 +938,27 @@ export function DocumentEditor({
               entryFixed={fixed(config.main)}
               groupFixed={fixed(connections.groupCollection)}
               renderName={text}
+              renderGroupActions={(row) =>
+                !fixed(connections.groupCollection) &&
+                can(connections.groupCollection, row) ? (
+                  <Menu
+                    id={`connections:${row.id}:actions`}
+                    className="dv-band-project-actions"
+                    anchored
+                    ariaLabel={`Options for ${row.name}`}
+                    label={<span aria-hidden="true">⋯</span>}
+                  >
+                    <button
+                      onClick={() => {
+                        store.remove(connections.groupCollection, row.id);
+                        setOpen(null);
+                      }}
+                    >
+                      Remove {noun(connections.groupCollection)}
+                    </button>
+                  </Menu>
+                ) : null
+              }
               renderField={(row, name) =>
                 field(row, name, `connections:${row.id}`, true)
               }
