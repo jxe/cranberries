@@ -224,8 +224,9 @@ test("a selected project's related entries follow status priority before unrelat
   assert.equal(rows[0].id, "dim");
 });
 
-test("a goal ranks entries by their strongest project contribution, then status", async () => {
-  const { sortConnectionEntries } = await import("../src/connections");
+test("a focused goal promotes only primary-project entries, including shared entries", async () => {
+  const { sortConnectionEntries, primaryGoalEntryIds } =
+    await import("../src/connections");
   const options = {
     groupCollection: "project",
     memberField: "projects",
@@ -264,6 +265,21 @@ test("a goal ranks entries by their strongest project contribution, then status"
       type: "goal",
       id: "g",
     }).map((e) => e.id),
-    ["focus", "shared", "good", "support", "unrelated"],
+    ["focus", "shared", "good", "unrelated", "support"],
+  );
+  assert.deepEqual(
+    [
+      ...primaryGoalEntryIds(rows, projects, "projects", options.goals[0]),
+    ].sort(),
+    ["focus", "good", "shared"],
+  );
+  assert.equal(
+    primaryGoalEntryIds(
+      rows,
+      projects.filter((p) => p.id !== "p"),
+      "projects",
+      options.goals[0],
+    ).size,
+    0,
   );
 });

@@ -78,6 +78,25 @@ export function sortConnectionProjects(
       rank[connectionStrength(goal, a)] - rank[connectionStrength(goal, b)],
   );
 }
+export function primaryGoalEntryIds(
+  entries: Entity[],
+  projects: Entity[],
+  memberField: string,
+  goal: ConnectionViewOptions["goals"][number],
+) {
+  const primaryProjects = new Set(
+    projects
+      .filter((p) => connectionStrength(goal, p) === "Primary")
+      .map((p) => p.id),
+  );
+  return new Set(
+    entries
+      .filter((e) =>
+        members(e, memberField).some((id) => primaryProjects.has(id)),
+      )
+      .map((e) => e.id),
+  );
+}
 export function sortConnectionEntries(
   entries: Entity[],
   projects: Entity[],
@@ -89,7 +108,7 @@ export function sortConnectionEntries(
       ? options.goals.find((g) => g.id === selection.id)
       : undefined;
   const byProject = new Map(projects.map((p) => [p.id, p]));
-  const strengthRank = { Primary: 0, Supporting: 1, Unmapped: 2 };
+  const strengthRank = { Primary: 0, Supporting: 2, Unmapped: 2 };
   const relevance = (entry: Entity) => {
     const ids = members(entry, options.memberField);
     if (selection?.type === "project")
@@ -354,6 +373,15 @@ export function ConnectionEditor({
     if (selection.type === "goal") {
       activeGoals.clear();
       activeGoals.add(selection.id);
+      activeEntries.clear();
+      const goal = options.goals.find((g) => g.id === selection.id);
+      if (goal)
+        primaryGoalEntryIds(
+          entries,
+          projects,
+          options.memberField,
+          goal,
+        ).forEach((id) => activeEntries.add(id));
     }
     if (selection.type === "entry") {
       activeEntries.clear();
@@ -481,7 +509,13 @@ export function ConnectionEditor({
               `project:${p.id}`,
               `entry:${e.id}`,
               "Supporting",
-              activeProjects.has(p.id) && activeEntries.has(e.id),
+              activeProjects.has(p.id) &&
+                activeEntries.has(e.id) &&
+                (selection?.type !== "goal" ||
+                  connectionStrength(
+                    options.goals.find((g) => g.id === selection.id)!,
+                    p,
+                  ) === "Primary"),
             );
         });
       });
