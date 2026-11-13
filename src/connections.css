@@ -420,3 +420,20 @@
   border-radius: 2px;
   color: #bd8a19;
 }
+
+.dv-band-entry .dv-band-detail {
+  flex: 0 0 100%;
+  padding: 6px 0 2px;
+  white-space: normal;
+}
+.dv-band-detail-label {
+  display: block;
+  text-transform: capitalize;
+  color: #999;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+.dv-band-detail .dv-text {
+  display: block;
+  min-height: 20px;
+}

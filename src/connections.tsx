@@ -12,6 +12,7 @@ export type ConnectionViewOptions = {
   label?: string;
   groupCollection: string;
   memberField: string;
+  detailFields?: string[];
   entryOrder?: { field: string; values: string[] };
   goals: {
     id: string;
@@ -755,12 +756,23 @@ export function ConnectionEditor({
                     {fields
                       .filter(
                         (f) =>
-                          f !== options.memberField ||
+                          (f !== options.memberField &&
+                            !options.detailFields?.includes(f)) ||
                           (selection?.type === "entry" &&
                             selection.id === e.id),
                       )
                       .map((f) => (
-                        <div className="dv-band-field" key={f}>
+                        <div
+                          className={
+                            options.detailFields?.includes(f)
+                              ? "dv-band-field dv-band-detail"
+                              : "dv-band-field"
+                          }
+                          key={f}
+                        >
+                          {options.detailFields?.includes(f) && (
+                            <span className="dv-band-detail-label">{f}</span>
+                          )}
                           {renderField(e, f)}
                         </div>
                       ))}

@@ -800,6 +800,12 @@ export function DocumentEditor({
         presenceKey={fieldKey(type, row.id, field)}
         value={String(row[field])}
         label={`${noun(type)} ${field}`}
+        multiline={fieldsOf(config, type)[field]?.type === "longtext"}
+        placeholder={
+          fieldsOf(config, type)[field]?.type === "longtext"
+            ? "Add details…"
+            : undefined
+        }
         onChange={(v, b) => store.set(type, row.id, field, v, b)}
         onEmpty={
           field === "name" ? () => store.remove(type, row.id) : undefined

@@ -346,3 +346,7 @@ A personal line below the document title lists each `<title> of <entry name>`.
 The public Royal roles dialog lists everyone's current assignments, using the
 same logic as the personal line and portrait tooltips. Existing leads are not
 automatically crowned.
+
+Connections may provide `detailFields` for fields shown only when their entry
+is selected. These expand below the compact field row; longtext fields reuse
+the multiline Markdown editor and the normal save path.
