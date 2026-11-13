@@ -13,6 +13,7 @@ export type ConnectionViewOptions = {
   groupCollection: string;
   memberField: string;
   detailFields?: string[];
+  groupDetailFields?: string[];
   entryOrder?: { field: string; values: string[] };
   goals: {
     id: string;

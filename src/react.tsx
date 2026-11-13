@@ -684,6 +684,10 @@ export function DocumentEditor({
   );
   const everyone = (people && state.data[people]) || [];
   const me = everyone.find((r) => r.id === signed?.person);
+  const [recordDetails, setRecordDetails] = useState<{
+    type: string;
+    id: string;
+  } | null>(null);
   const [royalDialog, setRoyalDialog] = useState<"titles" | "roles" | null>(
     null,
   );
@@ -1191,6 +1195,26 @@ export function DocumentEditor({
               />
             )}
           </header>
+          {recordDetails &&
+            connections &&
+            (() => {
+              const row = state.data[recordDetails.type]?.find(
+                (r) => r.id === recordDetails.id,
+              );
+              return row ? (
+                <Dialog
+                  title={String(row.name)}
+                  onClose={() => setRecordDetails(null)}
+                >
+                  {(connections.groupDetailFields ?? []).map((name) => (
+                    <div className="dv-record-detail" key={name}>
+                      <strong>{name}</strong>
+                      {text(recordDetails.type, row, name)}
+                    </div>
+                  ))}
+                </Dialog>
+              ) : null;
+            })()}
           {royalty && royalDialog && (
             <Dialog
               title={
@@ -1303,7 +1327,9 @@ export function DocumentEditor({
               groupFixed={fixed(connections.groupCollection)}
               renderName={text}
               renderActions={(type, row) =>
-                !fixed(type) && can(type, row) ? (
+                (!fixed(type) && can(type, row)) ||
+                (type === connections.groupCollection &&
+                  connections.groupDetailFields?.length) ? (
                   <Menu
                     id={`connections:${type}:${row.id}:actions`}
                     className="dv-band-record-actions"
@@ -1311,14 +1337,28 @@ export function DocumentEditor({
                     ariaLabel={`Options for ${row.name}`}
                     label={<span aria-hidden="true">⋯</span>}
                   >
-                    <button
-                      onClick={() => {
-                        store.remove(type, row.id);
-                        setOpen(null);
-                      }}
-                    >
-                      Remove {noun(type)}
-                    </button>
+                    {type === connections.groupCollection &&
+                      connections.groupDetailFields?.length && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpen(null);
+                            setRecordDetails({ type, id: row.id });
+                          }}
+                        >
+                          Details…
+                        </button>
+                      )}
+                    {!fixed(type) && can(type, row) && (
+                      <button
+                        onClick={() => {
+                          store.remove(type, row.id);
+                          setOpen(null);
+                        }}
+                      >
+                        Remove {noun(type)}
+                      </button>
+                    )}
                   </Menu>
                 ) : null
               }

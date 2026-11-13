@@ -637,3 +637,18 @@
 .dv-royal-toggle .dv-crown {
   color: inherit;
 }
+
+.dv-record-detail {
+  margin: 8px 6px;
+}
+.dv-record-detail > strong {
+  display: block;
+  font-size: 13px;
+  text-transform: capitalize;
+  color: #888;
+  font-weight: 400;
+}
+.dv-record-detail > .dv-text {
+  display: block;
+  min-height: 30px;
+}

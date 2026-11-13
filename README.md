@@ -350,3 +350,6 @@ automatically crowned.
 Connections may provide `detailFields` for fields shown only when their entry
 is selected. These expand below the compact field row; longtext fields reuse
 the multiline Markdown editor and the normal save path.
+`groupDetailFields` exposes project text details in a Details dialog from the
+project's actions menu, including for visitors. It uses the existing multiline
+field editor without expanding the project card.
