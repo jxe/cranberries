@@ -21,7 +21,7 @@ export type DocumentAppOptions = {
   endpoint?: string;
 } & Pick<
   DocumentEditorProps,
-  "renderPrefix" | "renderLabel" | "connections" | "initialView"
+  "renderPrefix" | "renderLabel" | "connections" | "initialView" | "royalty"
 >;
 export function DocumentApp({
   initial,
@@ -35,6 +35,7 @@ export function DocumentApp({
   renderLabel,
   connections,
   initialView,
+  royalty,
   session,
 }: DocumentAppOptions & { initial: Snapshot; session: Session }) {
   const [client] = useState(() =>
@@ -75,6 +76,7 @@ export function DocumentApp({
         renderLabel={renderLabel}
         connections={connections}
         initialView={initialView}
+        royalty={royalty}
       />
     </>
   );

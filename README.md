@@ -328,3 +328,13 @@ only entries from Primary groups are highlighted and brought forward, with
 status order applied among them. Supporting-only and unrelated entries stay
 dimmed. A shared entry qualifies when any of its groups is Primary. Compact people pickers
 show portraits with accessible names and hover titles; their menus retain names.
+
+A host can enable royal lead roles with `royalty: { leadsField, membersField,
+titleField }`. The first two fields belong to the main collection; `titleField`
+is a text field on people (default `Sovereign`). Lead pickers offer a crown
+beside each person. Crowning someone also makes them a lead; removing their
+lead membership removes their royal role. The royal membership field is hidden
+from the Connections fields because it is edited within the lead picker.
+Signed-in people can change their own royal title in the account menu. When
+they have royal roles, a personal line below the document title lists each
+`<title> of <entry name>`. Existing leads are not automatically crowned.

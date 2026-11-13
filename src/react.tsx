@@ -437,7 +437,39 @@ export function useDocument(store: DocumentStore) {
   }, [store]);
   return state;
 }
+export type RoyaltyOptions = {
+  leadsField: string;
+  membersField: string;
+  titleField: string;
+};
+export function royalHonors(
+  entries: Entity[],
+  person: Entity,
+  options: RoyaltyOptions,
+) {
+  const title =
+    String(person[options.titleField] || "Sovereign").trim() || "Sovereign";
+  return entries
+    .filter((row) =>
+      (row[options.membersField] as string[] | undefined)?.includes(person.id),
+    )
+    .map((row) => `${title} of ${row.name}`);
+}
+function Crown() {
+  return (
+    <svg className="dv-crown" viewBox="0 0 20 16" aria-hidden="true">
+      <path
+        d="M2 4l4 4 4-6 4 6 4-4-2 9H4L2 4zM4 15h12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 export type DocumentEditorProps = {
+  royalty?: RoyaltyOptions;
   connections?: ConnectionViewOptions;
   initialView?: "connections";
   store: DocumentStore;
@@ -458,6 +490,7 @@ export function DocumentEditor({
   session,
   connections,
   initialView,
+  royalty,
 }: DocumentEditorProps) {
   const state = useDocument(store),
     config = store.config;
@@ -492,6 +525,8 @@ export function DocumentEditor({
   );
   const everyone = (people && state.data[people]) || [];
   const me = everyone.find((r) => r.id === signed?.person);
+  const honors =
+    me && royalty ? royalHonors(state.data[config.main], me, royalty) : [];
   const remembered = everyone.find((r) => r.id === signed?.remembered);
   const readOnly = store.readOnly();
   const others = usePresence(root, presence, {
@@ -696,6 +731,12 @@ export function DocumentEditor({
         </Menu>
       );
     if (d.type !== "many") return null;
+    const royalLeads = royalty && name === royalty.leadsField && person(d.of);
+    const isRoyal = (id: string) =>
+      Boolean(
+        royalLeads &&
+        (row[royalty!.membersField] as string[] | undefined)?.includes(id),
+      );
     const members = state.data[d.of].filter((r) =>
       (value as string[]).includes(r.id),
     );
@@ -719,11 +760,16 @@ export function DocumentEditor({
                         : "dv-member"
                     }
                     key={r.id}
-                    title={inline && person(d.of) ? String(r.name) : undefined}
+                    title={
+                      inline && person(d.of)
+                        ? `${r.name}${isRoyal(r.id) ? `, ${String(r[royalty!.titleField] || "Sovereign")} of ${row.name}` : ""}`
+                        : undefined
+                    }
                     aria-label={
                       inline && person(d.of) ? String(r.name) : undefined
                     }
                   >
+                    {isRoyal(r.id) && <Crown />}
                     {inline && person(d.of) ? (
                       (renderPrefix(d.of, r) ?? <Avatar person={r} />)
                     ) : (
@@ -744,12 +790,47 @@ export function DocumentEditor({
               aria-label={`Include ${r.name}`}
               disabled={!can(config.main, row)}
               checked={(value as string[]).includes(r.id)}
-              onChange={(e) =>
-                store.link(config.main, row.id, name, r.id, e.target.checked)
-              }
+              onChange={(e) => {
+                store.link(config.main, row.id, name, r.id, e.target.checked);
+                if (!e.target.checked && isRoyal(r.id))
+                  store.link(
+                    config.main,
+                    row.id,
+                    royalty!.membersField,
+                    r.id,
+                    false,
+                  );
+              }}
             />
             {renderPrefix(d.of, r)}
             {text(d.of, r)}
+            {royalLeads && (
+              <button
+                type="button"
+                className="dv-royal-toggle"
+                aria-label={`Royal lead: ${r.name}`}
+                title={
+                  isRoyal(r.id)
+                    ? `Remove royal role from ${r.name}`
+                    : `Make ${r.name} a royal lead`
+                }
+                aria-pressed={isRoyal(r.id)}
+                disabled={!can(config.main, row)}
+                onClick={() => {
+                  if (!isRoyal(r.id))
+                    store.link(config.main, row.id, name, r.id, true);
+                  store.link(
+                    config.main,
+                    row.id,
+                    royalty!.membersField,
+                    r.id,
+                    !isRoyal(r.id),
+                  );
+                }}
+              >
+                <Crown />
+              </button>
+            )}
           </span>
         ))}
       </Menu>
@@ -845,6 +926,30 @@ export function DocumentEditor({
                     )
                   }
                 >
+                  {royalty && me && people && (
+                    <div className="dv-royal-title">
+                      <span>Royal title</span>
+                      <EditableText
+                        label="Your royal title"
+                        value={String(me[royalty.titleField] || "Sovereign")}
+                        readOnly={!can(people, me)}
+                        presenceKey={fieldKey(
+                          people,
+                          me.id,
+                          royalty.titleField,
+                        )}
+                        onChange={(value, before) =>
+                          store.set(
+                            people,
+                            me.id,
+                            royalty.titleField,
+                            value,
+                            before,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
                   <Account
                     session={session}
                     state={signed}
@@ -861,6 +966,14 @@ export function DocumentEditor({
                   Read only
                 </span>
               ))}
+            {me && honors.length > 0 && (
+              <p
+                className="dv-royal-honors"
+                aria-label="Your royal excellences"
+              >
+                <strong>{String(me.name)}</strong>, {honors.join(", ")}
+              </p>
+            )}
             <nav aria-label="Group document">
               {[
                 ...(connections
@@ -978,7 +1091,9 @@ export function DocumentEditor({
               renderField={(row, name) =>
                 field(row, name, `connections:${row.id}`, true)
               }
-              fields={Object.keys(main).filter((name) => name !== "name")}
+              fields={Object.keys(main).filter(
+                (name) => name !== "name" && name !== royalty?.membersField,
+              )}
               canEdit={can}
               onSetConnection={(row, field, value) =>
                 store.set(connections.groupCollection, row.id, field, value)

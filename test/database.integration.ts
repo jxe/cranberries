@@ -994,3 +994,38 @@ both(
     assert.equal((await read(id)).revision, 2);
   },
 );
+
+both(
+  "royal roles and a person's chosen title persist without changing existing leads",
+  async () => {
+    const id = await create();
+    const next = structuredClone(config);
+    next.collections.person.fields.royalTitle = {
+      type: "text",
+      default: "Sovereign",
+    };
+    next.collections.task.fields.royalLeads = { type: "many", of: "person" };
+    await server.configure(id, next);
+    const initial = await read(id);
+    assert.equal(initial.data.person[0].royalTitle, "Sovereign");
+    assert.deepEqual(initial.data.task[0].royalLeads, []);
+    const result = await commit(id, [
+      {
+        kind: "set",
+        type: "person",
+        id: "p",
+        field: "royalTitle",
+        before: "Sovereign",
+        value: "Princess",
+      },
+      { kind: "link", type: "task", id: "t", field: "royalLeads", value: "p" },
+    ]);
+    assert.equal(result.conflict, undefined);
+    const saved = await read(id);
+    assert.equal(saved.data.person[0].royalTitle, "Princess");
+    assert.deepEqual(saved.data.task[0].royalLeads, ["p"]);
+    assert.deepEqual(saved.data.task[0].leads, initial.data.task[0].leads);
+    await server.configure(id, next);
+    assert.equal((await read(id)).data.person[0].royalTitle, "Princess");
+  },
+);

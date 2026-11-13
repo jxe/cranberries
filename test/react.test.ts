@@ -283,3 +283,83 @@ test("a focused goal promotes only primary-project entries, including shared ent
     0,
   );
 });
+
+test("royal honors follow only that person's royal roles and use their chosen title", async () => {
+  const { royalHonors } = await import("../src/react");
+  const options = {
+    leadsField: "leads",
+    membersField: "royalLeads",
+    titleField: "royalTitle",
+  };
+  const entries = [
+    { id: "a", name: "Listening", leads: ["p"], royalLeads: ["q"] },
+    { id: "b", name: "Research", leads: ["p"], royalLeads: ["p", "q"] },
+    { id: "c", name: "Writing", leads: ["p"], royalLeads: ["p"] },
+  ];
+  assert.deepEqual(
+    royalHonors(
+      entries,
+      { id: "p", name: "Pat", royalTitle: "Princess" },
+      options,
+    ),
+    ["Princess of Research", "Princess of Writing"],
+  );
+  assert.deepEqual(royalHonors(entries, { id: "p", name: "Pat" }, options), [
+    "Sovereign of Research",
+    "Sovereign of Writing",
+  ]);
+  assert.deepEqual(
+    royalHonors(entries, { id: "n", name: "No roles" }, options),
+    [],
+  );
+});
+
+test("the personal royal line appears below the title only for the signed-in royal", async () => {
+  const { demoSession } = await import("../src/session");
+  const royalConfig = structuredClone(config);
+  royalConfig.collections.person.kind = "person";
+  royalConfig.collections.task.fields.royalLeads = {
+    type: "many",
+    of: "person",
+  };
+  royalConfig.collections.person.fields.royalTitle = {
+    type: "text",
+    default: "Sovereign",
+  };
+  const initial = {
+    revision: 0,
+    data: {
+      person: [{ id: "p", name: "Pat", royalTitle: "Queen" }],
+      task: [{ ...data.task[0], royalLeads: ["p"] }],
+    },
+  };
+  const store = new DocumentStore(royalConfig, initial, {
+    read: async () => initial,
+    commit: async () => ({ snapshot: initial }),
+    subscribe: () => () => {},
+  });
+  const props = {
+    store,
+    royalty: {
+      leadsField: "leads",
+      membersField: "royalLeads",
+      titleField: "royalTitle",
+    },
+  };
+  const html = renderToString(
+    React.createElement(DocumentEditor, {
+      ...props,
+      session: demoSession("p"),
+    }),
+  );
+  assert.match(html, /Your royal excellences/);
+  assert.match(html, /Queen of Task/);
+  assert.ok(html.indexOf("</h1>") < html.indexOf("Your royal excellences"));
+  assert.ok(
+    html.indexOf("Your royal excellences") < html.indexOf("Group document"),
+  );
+  assert.doesNotMatch(
+    renderToString(React.createElement(DocumentEditor, props)),
+    /Your royal excellences/,
+  );
+});

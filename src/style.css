@@ -514,3 +514,47 @@
 .dv-dialog .dv-menu-title {
   margin: 10px 0 2px;
 }
+
+.dv-crown {
+  width: 16px;
+  height: 14px;
+  vertical-align: -1px;
+  flex-shrink: 0;
+}
+.dv-member .dv-crown {
+  width: 12px;
+  height: 12px;
+  margin-right: 2px;
+}
+.dv-royal-toggle {
+  color: #b4b8bd !important;
+  padding: 2px 4px !important;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.dv-royal-toggle[aria-pressed="true"] {
+  color: #292929 !important;
+}
+.dv-royal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 6px;
+  border-bottom: 1px solid #eceef0;
+  margin-bottom: 6px;
+}
+.dv-royal-title > span:first-child {
+  color: #888;
+  font-size: 13px;
+}
+.dv-document .dv-royal-honors {
+  grid-column: 1/-1;
+  margin: 10px 0 0;
+  color: #656565;
+  line-height: 1.5;
+  font-size: 16px;
+}
+.dv-royal-honors strong {
+  font-weight: 600;
+  color: #292929;
+}

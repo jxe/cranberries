@@ -408,3 +408,15 @@
   top: 0;
   font-size: 9px;
 }
+.dv-band-entry .dv-member-icon > .dv-crown {
+  position: absolute;
+  z-index: 1;
+  right: -3px;
+  top: -4px;
+  width: 11px;
+  height: 10px;
+  margin: 0;
+  background: white;
+  border-radius: 2px;
+  color: #292929;
+}
