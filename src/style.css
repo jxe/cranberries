@@ -520,6 +520,7 @@
   height: 14px;
   vertical-align: -1px;
   flex-shrink: 0;
+  color: #bd8a19;
 }
 .dv-member .dv-crown {
   width: 12px;
@@ -533,7 +534,7 @@
   flex-shrink: 0;
 }
 .dv-royal-toggle[aria-pressed="true"] {
-  color: #292929 !important;
+  color: #bd8a19 !important;
 }
 .dv-royal-title {
   display: flex;
@@ -557,4 +558,82 @@
 .dv-royal-honors strong {
   font-weight: 600;
   color: #292929;
+}
+
+.dv-royal-browse {
+  grid-column: 1/-1;
+  margin-top: 7px;
+  font-size: 13px;
+  color: #888;
+}
+.dv-royal-browse button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+.dv-royal-note {
+  color: #888;
+  font-size: 14px;
+  margin: 2px 6px 12px;
+  line-height: 1.4;
+}
+.dv-royal-title-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin: 0 6px;
+}
+.dv-royal-title-list label {
+  line-height: 24px;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 15px;
+}
+.dv-royal-title-list input {
+  accent-color: #bd8a19;
+}
+.dv-royal-title-list button {
+  margin-left: auto;
+  color: #aaa;
+  padding: 0 4px;
+}
+.dv-royal-add {
+  display: flex;
+  gap: 12px;
+  margin: 15px 6px 4px;
+}
+.dv-royal-add input {
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  border: 1px solid #e5e7ea;
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.dv-royal-roster > div {
+  margin: 10px 6px 18px;
+}
+.dv-royal-roster strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.dv-royal-roster ul {
+  margin-top: 3px;
+  padding-left: 24px;
+}
+.dv-royal-roster li {
+  list-style: disc;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.dv-royal-roster p {
+  font-size: 14px;
+  color: #999;
+  margin: 3px 0;
+}
+.dv-royal-toggle .dv-crown {
+  color: inherit;
 }

@@ -1005,11 +1005,27 @@ both(
       default: "Sovereign",
     };
     next.collections.task.fields.royalLeads = { type: "many", of: "person" };
+    next.collections.person.fields.royalTitles = {
+      type: "longtext",
+      default: '[{"title":"King","enabled":true}]',
+    };
     await server.configure(id, next);
     const initial = await read(id);
     assert.equal(initial.data.person[0].royalTitle, "Sovereign");
     assert.deepEqual(initial.data.task[0].royalLeads, []);
+    const pool = JSON.stringify([
+      { title: "Queen", enabled: false },
+      { title: "Grand Wizard", enabled: true },
+    ]);
     const result = await commit(id, [
+      {
+        kind: "set",
+        type: "person",
+        id: "p",
+        field: "royalTitles",
+        before: initial.data.person[0].royalTitles,
+        value: pool,
+      },
       {
         kind: "set",
         type: "person",
@@ -1023,6 +1039,7 @@ both(
     assert.equal(result.conflict, undefined);
     const saved = await read(id);
     assert.equal(saved.data.person[0].royalTitle, "Princess");
+    assert.equal(saved.data.person[0].royalTitles, pool);
     assert.deepEqual(saved.data.task[0].royalLeads, ["p"]);
     assert.deepEqual(saved.data.task[0].leads, initial.data.task[0].leads);
     await server.configure(id, next);

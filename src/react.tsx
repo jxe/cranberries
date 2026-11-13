@@ -23,7 +23,7 @@ import { markdown, type Mark } from "./markdown";
 import { DocumentStore } from "./store";
 import { fieldKey, usePresence, type PresenceOptions } from "./presence";
 import type { Session } from "./session";
-import { Account } from "./account";
+import { Account, Dialog } from "./account";
 import { ConnectionEditor, type ConnectionViewOptions } from "./connections";
 export type { ConnectionViewOptions, ConnectionStrength } from "./connections";
 const MenuContext = createContext<{
@@ -441,19 +441,178 @@ export type RoyaltyOptions = {
   leadsField: string;
   membersField: string;
   titleField: string;
+  titlesField?: string;
+  titles?: string[];
 };
+export type RoyalTitle = { title: string; enabled: boolean };
+export function royalTitleList(
+  person: Entity,
+  options: RoyaltyOptions,
+): RoyalTitle[] {
+  if (options.titlesField) {
+    try {
+      const list: unknown = JSON.parse(String(person[options.titlesField]));
+      if (Array.isArray(list)) {
+        const seen = new Set<string>();
+        const valid = list
+          .filter((item): item is RoyalTitle => {
+            if (
+              !item ||
+              typeof item.title !== "string" ||
+              !item.title.trim() ||
+              typeof item.enabled !== "boolean"
+            )
+              return false;
+            const key = item.title.trim().toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((item) => ({ ...item, title: item.title.trim() }));
+        if (valid.some((item) => item.enabled)) return valid;
+      }
+    } catch {
+      /* An older person record uses the configured defaults. */
+    }
+    if (options.titles?.length)
+      return options.titles.map((title) => ({ title, enabled: true }));
+  }
+  return [
+    {
+      title:
+        String(person[options.titleField] || "Sovereign").trim() || "Sovereign",
+      enabled: true,
+    },
+  ];
+}
+const royalHash = (text: string) => {
+  let hash = 2166136261;
+  for (const character of text)
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return hash >>> 0;
+};
+export function royalAssignments(
+  entries: Entity[],
+  person: Entity,
+  options: RoyaltyOptions,
+) {
+  const titles = royalTitleList(person, options)
+    .filter((item) => item.enabled)
+    .map((item) => item.title)
+    .sort(
+      (a, b) =>
+        royalHash(`${person.id}:${a}`) - royalHash(`${person.id}:${b}`) ||
+        a.localeCompare(b),
+    );
+  const held = entries.filter((row) =>
+    (row[options.membersField] as string[] | undefined)?.includes(person.id),
+  );
+  const ordered = [...held].sort(
+    (a, b) =>
+      royalHash(`${person.id}:${a.id}`) - royalHash(`${person.id}:${b.id}`) ||
+      a.id.localeCompare(b.id),
+  );
+  const assigned = new Map(
+    ordered.map((row, index) => [row.id, titles[index % titles.length]]),
+  );
+  return held.map((row) => ({
+    id: row.id,
+    title: assigned.get(row.id)!,
+    name: String(row.name),
+  }));
+}
 export function royalHonors(
   entries: Entity[],
   person: Entity,
   options: RoyaltyOptions,
 ) {
-  const title =
-    String(person[options.titleField] || "Sovereign").trim() || "Sovereign";
-  return entries
-    .filter((row) =>
-      (row[options.membersField] as string[] | undefined)?.includes(person.id),
-    )
-    .map((row) => `${title} of ${row.name}`);
+  return royalAssignments(entries, person, options).map(
+    (role) => `${role.title} of ${role.name}`,
+  );
+}
+function RoyalTitleEditor({
+  person,
+  options,
+  onChange,
+}: {
+  person: Entity;
+  options: RoyaltyOptions;
+  onChange: (list: RoyalTitle[]) => void;
+}) {
+  const list = royalTitleList(person, options);
+  const [custom, setCustom] = useState("");
+  return (
+    <>
+      <p className="dv-royal-note">
+        Titles are mixed across your excellences, without repeats until all
+        enabled titles are used.
+      </p>
+      <div className="dv-royal-title-list">
+        {list.map((item, index) => (
+          <label key={item.title}>
+            <input
+              type="checkbox"
+              checked={item.enabled}
+              aria-label={`Use ${item.title}`}
+              disabled={
+                item.enabled && list.filter((t) => t.enabled).length === 1
+              }
+              onChange={(event) =>
+                onChange(
+                  list.map((title, i) =>
+                    i === index
+                      ? { ...title, enabled: event.target.checked }
+                      : title,
+                  ),
+                )
+              }
+            />
+            {item.title}
+            <button
+              type="button"
+              aria-label={`Remove title ${item.title}`}
+              disabled={
+                item.enabled && list.filter((t) => t.enabled).length === 1
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                onChange(list.filter((_, i) => i !== index));
+              }}
+            >
+              ×
+            </button>
+          </label>
+        ))}
+      </div>
+      <form
+        className="dv-royal-add"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const title = custom.trim();
+          if (!title) return;
+          const exists = list.find(
+            (item) => item.title.toLowerCase() === title.toLowerCase(),
+          );
+          onChange(
+            exists
+              ? list.map((item) =>
+                  item === exists ? { ...item, enabled: true } : item,
+                )
+              : [...list, { title, enabled: true }],
+          );
+          setCustom("");
+        }}
+      >
+        <input
+          aria-label="New royal title"
+          placeholder="Add a title…"
+          value={custom}
+          onChange={(event) => setCustom(event.target.value)}
+        />
+        <button type="submit">Add</button>
+      </form>
+    </>
+  );
 }
 function Crown() {
   return (
@@ -525,6 +684,9 @@ export function DocumentEditor({
   );
   const everyone = (people && state.data[people]) || [];
   const me = everyone.find((r) => r.id === signed?.person);
+  const [royalDialog, setRoyalDialog] = useState<"titles" | "roles" | null>(
+    null,
+  );
   const honors =
     me && royalty ? royalHonors(state.data[config.main], me, royalty) : [];
   const remembered = everyone.find((r) => r.id === signed?.remembered);
@@ -762,7 +924,7 @@ export function DocumentEditor({
                     key={r.id}
                     title={
                       inline && person(d.of)
-                        ? `${r.name}${isRoyal(r.id) ? `, ${String(r[royalty!.titleField] || "Sovereign")} of ${row.name}` : ""}`
+                        ? `${r.name}${isRoyal(r.id) ? `, ${royalAssignments(state.data[config.main], r, royalty!).find((role) => role.id === row.id)?.title || "Sovereign"} of ${row.name}` : ""}`
                         : undefined
                     }
                     aria-label={
@@ -926,18 +1088,23 @@ export function DocumentEditor({
                     )
                   }
                 >
-                  {royalty && me && people && (
+                  {royalty && me && people && royalty.titlesField ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(null);
+                        setRoyalDialog("titles");
+                      }}
+                    >
+                      Your royal titles…
+                    </button>
+                  ) : royalty && me && people ? (
                     <div className="dv-royal-title">
                       <span>Royal title</span>
                       <EditableText
                         label="Your royal title"
                         value={String(me[royalty.titleField] || "Sovereign")}
                         readOnly={!can(people, me)}
-                        presenceKey={fieldKey(
-                          people,
-                          me.id,
-                          royalty.titleField,
-                        )}
                         onChange={(value, before) =>
                           store.set(
                             people,
@@ -949,7 +1116,7 @@ export function DocumentEditor({
                         }
                       />
                     </div>
-                  )}
+                  ) : null}
                   <Account
                     session={session}
                     state={signed}
@@ -973,6 +1140,13 @@ export function DocumentEditor({
               >
                 <strong>{String(me.name)}</strong>, {honors.join(", ")}
               </p>
+            )}
+            {royalty && (
+              <div className="dv-royal-browse">
+                <button type="button" onClick={() => setRoyalDialog("roles")}>
+                  <Crown /> Royal roles
+                </button>
+              </div>
             )}
             <nav aria-label="Group document">
               {[
@@ -1011,6 +1185,60 @@ export function DocumentEditor({
               />
             )}
           </header>
+          {royalty && royalDialog && (
+            <Dialog
+              title={
+                royalDialog === "titles" ? "Your royal titles" : "Royal roles"
+              }
+              onClose={() => setRoyalDialog(null)}
+            >
+              {royalDialog === "titles" &&
+              me &&
+              people &&
+              royalty.titlesField &&
+              can(people, me) ? (
+                <RoyalTitleEditor
+                  person={me}
+                  options={royalty}
+                  onChange={(list) =>
+                    store.set(
+                      people,
+                      me.id,
+                      royalty.titlesField!,
+                      JSON.stringify(list),
+                    )
+                  }
+                />
+              ) : royalDialog === "roles" ? (
+                <div className="dv-royal-roster">
+                  {everyone.map((person) => {
+                    const roles = royalHonors(
+                      state.data[config.main],
+                      person,
+                      royalty,
+                    );
+                    return (
+                      <div key={person.id}>
+                        <strong>
+                          {people && renderPrefix(people, person)}
+                          {String(person.name)}
+                        </strong>
+                        {roles.length ? (
+                          <ul>
+                            {roles.map((role) => (
+                              <li key={role}>{role}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>No royal roles yet.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </Dialog>
+          )}
           {!state.realtime && (
             <div className="dv-connection" role="status">
               Live updates reconnecting.{" "}

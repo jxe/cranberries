@@ -323,7 +323,7 @@ their editing behavior. A selected goal orders groups Primary, then Supporting,
 then unmapped, retaining record order within each strength.
 
 A host may provide `entryOrder: { field, values }` to rank a project's related
-entries by status before unrelated entries. With a goal selected, entries from
+entries by status before unrelated entries. With a goal selected,
 only entries from Primary groups are highlighted and brought forward, with
 status order applied among them. Supporting-only and unrelated entries stay
 dimmed. A shared entry qualifies when any of its groups is Primary. Compact people pickers
@@ -335,6 +335,14 @@ is a text field on people (default `Sovereign`). Lead pickers offer a crown
 beside each person. Crowning someone also makes them a lead; removing their
 lead membership removes their royal role. The royal membership field is hidden
 from the Connections fields because it is edited within the lead picker.
-Signed-in people can change their own royal title in the account menu. When
-they have royal roles, a personal line below the document title lists each
-`<title> of <entry name>`. Existing leads are not automatically crowned.
+Signed-in people can change their own royal title in the account menu. A host
+can instead set `titlesField` (a longtext field on people) and `titles` (default
+strings) to offer a list of `{title, enabled}` objects stored as JSON. Everyone
+starts with all defaults enabled; the account dialog supports toggles, additions
+and removal, keeping at least one enabled title. Titles are shuffled using the
+person's ID, and assigned without replacement until the enabled list runs out.
+The same data produces the same assignment regardless of entry order or names.
+A personal line below the document title lists each `<title> of <entry name>`.
+The public Royal roles dialog lists everyone's current assignments, using the
+same logic as the personal line and portrait tooltips. Existing leads are not
+automatically crowned.

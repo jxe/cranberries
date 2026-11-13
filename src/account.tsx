@@ -45,7 +45,7 @@ function Step({
   );
 }
 // A modal over the page. Escape, the close button or a click outside closes it.
-function Dialog({
+export function Dialog({
   title,
   onClose,
   children,

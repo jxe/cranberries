@@ -363,3 +363,77 @@ test("the personal royal line appears below the title only for the signed-in roy
     /Your royal excellences/,
   );
 });
+
+test("royal titles are mixed without replacement and stable across entry order and renames", async () => {
+  const { royalAssignments, royalTitleList } = await import("../src/react");
+  const options = {
+    leadsField: "leads",
+    membersField: "royalLeads",
+    titleField: "royalTitle",
+    titlesField: "royalTitles",
+    titles: ["King", "Queen", "Princess"],
+  };
+  const person = {
+    id: "p",
+    name: "Pat",
+    royalTitles: JSON.stringify([
+      { title: "King", enabled: true },
+      { title: "Queen", enabled: true },
+      { title: "Princess", enabled: true },
+      { title: "Duke", enabled: false },
+    ]),
+  };
+  const entries = ["a", "b", "c"].map((id) => ({
+    id,
+    name: id,
+    royalLeads: ["p"],
+  }));
+  const assigned = royalAssignments(entries, person, options);
+  assert.equal(new Set(assigned.map((role) => role.title)).size, 3);
+  assert.ok(assigned.every((role) => role.title !== "Duke"));
+  const stable = (roles: typeof assigned) =>
+    Object.fromEntries(roles.map((role) => [role.id, role.title]));
+  assert.deepEqual(
+    stable(assigned),
+    stable(
+      royalAssignments(
+        [...entries].reverse().map((row) => ({ ...row, name: "Renamed" })),
+        person,
+        options,
+      ),
+    ),
+  );
+  const more = royalAssignments(
+    [...entries, { id: "d", name: "d", royalLeads: ["p"] }],
+    person,
+    options,
+  );
+  assert.equal(new Set(more.map((role) => role.title)).size, 3);
+  assert.equal(
+    royalTitleList({ id: "p", name: "Pat", royalTitles: "invalid" }, options)
+      .length,
+    3,
+  );
+  assert.equal(
+    royalTitleList(
+      {
+        id: "p",
+        name: "Pat",
+        royalTitles: '[{"title":"King","enabled":false}]',
+      },
+      options,
+    ).filter((item) => item.enabled).length,
+    3,
+  );
+  assert.deepEqual(
+    royalTitleList(
+      {
+        ...person,
+        royalTitles:
+          '[{"title":" King ","enabled":true},{"title":"king","enabled":true}]',
+      },
+      options,
+    ),
+    [{ title: "King", enabled: true }],
+  );
+});
