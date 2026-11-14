@@ -131,6 +131,7 @@ export function sortConnectionEntries(
   projects: Entity[],
   options: ConnectionViewOptions,
   selection: Selection,
+  orderByStatus = false,
 ) {
   const goal =
     selection?.type === "goal"
@@ -159,11 +160,16 @@ export function sortConnectionEntries(
     const index = order.values.indexOf(String(entry[order.field]));
     return index < 0 ? order.values.length : index;
   };
-  const useStatus = selection?.type === "goal" || selection?.type === "project";
+  const useStatus =
+    orderByStatus ||
+    selection?.type === "goal" ||
+    selection?.type === "project";
   return [...entries].sort(
     (a, b) =>
       relevance(a) - relevance(b) ||
-      (useStatus && relevance(a) < 2 ? status(a) - status(b) : 0) ||
+      (useStatus && (orderByStatus || relevance(a) < 2)
+        ? status(a) - status(b)
+        : 0) ||
       String(
         (options.entryShortNameField && a[options.entryShortNameField]) ||
           a.name,
@@ -483,6 +489,7 @@ export function ConnectionEditor({
     projects,
     options,
     selection,
+    onlyUnassigned,
   );
   const entryList = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {

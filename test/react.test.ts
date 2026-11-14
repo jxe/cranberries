@@ -544,3 +544,41 @@ test("connection descriptions are previews rather than extra compact-row fields 
   assert.doesNotMatch(html, /Preserved duty/);
   assert.doesNotMatch(html, /aria-label="description for/);
 });
+
+test("uncrowned entries use the standard status order without graph focus", async () => {
+  const { sortConnectionEntries } = await import("../src/connections");
+  const options = {
+    groupCollection: "project",
+    memberField: "projects",
+    goals: [],
+    entryOrder: {
+      field: "assessment",
+      values: ["Current focus", "Bad", "Improving", "Good"],
+    },
+  };
+  const rows = [
+    { id: "good", name: "A good", assessment: "Good", projects: [] },
+    {
+      id: "unknown",
+      name: "A unknown",
+      assessment: "Not recorded",
+      projects: [],
+    },
+    {
+      id: "improving",
+      name: "X improving",
+      assessment: "Improving",
+      projects: [],
+    },
+    { id: "bad", name: "Y bad", assessment: "Bad", projects: [] },
+    { id: "focus", name: "Z focus", assessment: "Current focus", projects: [] },
+  ];
+  assert.deepEqual(
+    sortConnectionEntries(rows, [], options, null, true).map((e) => e.id),
+    ["focus", "bad", "improving", "good", "unknown"],
+  );
+  assert.deepEqual(
+    sortConnectionEntries(rows, [], options, null).map((e) => e.id),
+    ["good", "unknown", "improving", "bad", "focus"],
+  );
+});
