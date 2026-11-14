@@ -342,6 +342,7 @@
 .dv-band-goal-title,
 .dv-band-goal-description,
 .dv-band-name,
+.dv-band-description,
 .dv-band-fields {
   position: relative;
   z-index: 1;
@@ -458,4 +459,36 @@
   color: #888;
   line-height: 1.35;
   margin: 3px 18px 3px 9px;
+}
+
+.dv-document .dv-band-filter {
+  margin-left: 10px;
+  font-size: 11px;
+  color: #888;
+  border: 1px solid #e5e7ea;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.dv-document .dv-band-filter[aria-pressed="true"] {
+  color: #333;
+  background: #f1f3f5;
+  border-color: #b5bcc3;
+}
+.dv-band-filter-empty {
+  font-size: 12px;
+  color: #888;
+  margin: 10px 5px;
+}
+.dv-band-entry-description {
+  line-height: 1.4;
+  max-height: 2.8em;
+  overflow: hidden;
+  cursor: pointer;
+}
+.dv-band-entry.selected .dv-band-entry-description {
+  max-height: none;
+  overflow: visible;
+}
+.dv-band-entry-description .dv-text {
+  display: block;
 }

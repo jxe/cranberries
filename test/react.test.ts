@@ -501,3 +501,46 @@ test("royal honors use short entry names and retain full-name fallback and stabl
     )[0].title,
   );
 });
+
+test("connection descriptions are previews rather than extra compact-row fields and uncrowned control is available to visitors", () => {
+  const next = structuredClone(config);
+  next.collections.task.fields.description = { type: "longtext", default: "" };
+  next.collections.task.fields.royalLeads = { type: "many", of: "person" };
+  const initial = {
+    revision: 0,
+    data: {
+      ...data,
+      task: [
+        {
+          ...data.task[0],
+          description: "The full definition\n\n- Preserved duty",
+          royalLeads: [],
+        },
+      ],
+    },
+  };
+  const store = new DocumentStore(next, initial, {
+    read: async () => initial,
+    commit: async () => ({ snapshot: initial }),
+    subscribe: () => () => {},
+  });
+  store.readOnly = () => true;
+  const html = renderToString(
+    React.createElement(DocumentEditor, {
+      store,
+      initialView: "connections",
+      connections: {
+        groupCollection: "person",
+        memberField: "leads",
+        entryDescriptionField: "description",
+        unassignedField: "royalLeads",
+        unassignedLabel: "Uncrowned",
+        goals: [],
+      },
+    }),
+  );
+  assert.match(html, /Uncrowned/);
+  assert.match(html, /The full definition/);
+  assert.doesNotMatch(html, /Preserved duty/);
+  assert.doesNotMatch(html, /aria-label="description for/);
+});

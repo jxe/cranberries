@@ -14,6 +14,9 @@ export type ConnectionViewOptions = {
   memberField: string;
   detailFields?: string[];
   entryShortNameField?: string;
+  entryDescriptionField?: string;
+  unassignedField?: string;
+  unassignedLabel?: string;
   groupDetailFields?: string[];
   entryOrder?: { field: string; values: string[] };
   goals: {
@@ -251,6 +254,11 @@ export function ConnectionEditor({
   const [selection, setSelection] = useState<Selection>(() =>
     projects[0] ? { type: "project", id: projects[0].id } : null,
   );
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+  const unassignedEntries = options.unassignedField
+    ? entries.filter((e) => members(e, options.unassignedField!).length === 0)
+    : [];
+  const visibleEntries = onlyUnassigned ? unassignedEntries : entries;
   const [paths, setPaths] = useState<BandPath[]>([]);
   const [tubeMenu, setTubeMenu] = useState<TubeMenu | null>(null);
   const [wire, setWire] = useState<Wire | null>(null);
@@ -471,7 +479,7 @@ export function ConnectionEditor({
     choose(type, id);
   };
   const sortedEntries = sortConnectionEntries(
-    entries,
+    visibleEntries,
     projects,
     options,
     selection,
@@ -479,7 +487,7 @@ export function ConnectionEditor({
   const entryList = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (entryList.current) entryList.current.scrollTop = 0;
-  }, [selection?.type, selection?.id]);
+  }, [selection?.type, selection?.id, onlyUnassigned]);
   const choose = (type: NonNullable<Selection>["type"], id: string) => {
     if (!suppress.current) {
       putWire(null);
@@ -501,10 +509,10 @@ export function ConnectionEditor({
       ((selection.type === "project" &&
         !projects.some((p) => p.id === selection.id)) ||
         (selection.type === "entry" &&
-          !entries.some((e) => e.id === selection.id)))
+          !visibleEntries.some((e) => e.id === selection.id)))
     )
       setSelection(null);
-  }, [data, selection, projects, entries]);
+  }, [data, selection, projects, entries, onlyUnassigned]);
 
   useLayoutEffect(() => {
     const root = stage.current!;
@@ -603,7 +611,7 @@ export function ConnectionEditor({
       root.removeEventListener("scroll", schedule, true);
       cancelAnimationFrame(raf);
     };
-  }, [data, options, selection]);
+  }, [data, options, selection, onlyUnassigned]);
 
   return (
     <div className="dv-band-view">
@@ -812,9 +820,32 @@ export function ConnectionEditor({
           <div className="dv-band-column">
             <h2>
               {entryLabel[0].toUpperCase() + entryLabel.slice(1)}s ·{" "}
-              {entries.length}
+              {onlyUnassigned
+                ? `${visibleEntries.length} / ${entries.length}`
+                : entries.length}
+              {options.unassignedField && (
+                <button
+                  type="button"
+                  className="dv-band-filter"
+                  aria-pressed={onlyUnassigned}
+                  onClick={() => {
+                    setOnlyUnassigned((value) => !value);
+                    setSelection(null);
+                    setTubeMenu(null);
+                    putWire(null);
+                  }}
+                >
+                  {options.unassignedLabel || "Unassigned"} (
+                  {unassignedEntries.length})
+                </button>
+              )}
             </h2>
             <div className="dv-band-list" ref={entryList}>
+              {onlyUnassigned && !sortedEntries.length && (
+                <p className="dv-band-filter-empty">
+                  All {entryLabel}s have a royal lead.
+                </p>
+              )}
               {sortedEntries.map((e) => (
                 <div
                   key={e.id}
@@ -853,15 +884,34 @@ export function ConnectionEditor({
                         {renderName(main, e)}
                       </div>
                     )}
+                  {options.entryDescriptionField &&
+                    (String(e[options.entryDescriptionField] || "").trim() ||
+                      (selection?.type === "entry" &&
+                        selection.id === e.id)) && (
+                      <div className="dv-band-description dv-band-entry-description">
+                        {selection?.type === "entry" &&
+                        selection.id === e.id ? (
+                          renderField(e, options.entryDescriptionField)
+                        ) : (
+                          <span>
+                            {String(e[options.entryDescriptionField] || "")
+                              .split("\n")
+                              .find((line) => line.trim())
+                              ?.replace(/^- /, "")}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   <div className="dv-band-fields">
                     {fields
                       .filter(
                         (f) =>
-                          (f !== options.memberField &&
+                          f !== options.entryDescriptionField &&
+                          ((f !== options.memberField &&
                             f !== options.entryShortNameField &&
                             !options.detailFields?.includes(f)) ||
-                          (selection?.type === "entry" &&
-                            selection.id === e.id),
+                            (selection?.type === "entry" &&
+                              selection.id === e.id)),
                       )
                       .map((f) => (
                         <div

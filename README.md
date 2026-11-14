@@ -363,3 +363,8 @@ their tube offers removal. Goal contribution strength controls are unchanged.
 beneath it, and uses the short name for alphabetical ordering. The field can be
 filled from the selected entry's details. `royalty.entryNameField` uses that
 same field for royal honors and portrait tooltips, falling back to the full name.
+
+`unassignedField` enables a compact relationship-empty filter, labeled with
+`unassignedLabel`. It clears graph focus to show all unassigned entries and
+updates as memberships change. `entryDescriptionField` shows a short preview
+beneath the entry name and expands into the multiline editor on selection.
