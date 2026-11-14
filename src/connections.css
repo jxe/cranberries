@@ -437,3 +437,25 @@
   display: block;
   min-height: 20px;
 }
+
+.dv-document .dv-band-port-output {
+  left: auto;
+  right: 0;
+}
+.dv-band-port-entry {
+  left: 0;
+}
+.dv-band-project > .dv-band-record-actions {
+  margin-right: 9px;
+}
+.dv-band-entry > .dv-band-name,
+.dv-band-entry > .dv-band-fields {
+  padding-left: 9px;
+}
+
+.dv-band-description {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.35;
+  margin: 3px 18px 3px 9px;
+}

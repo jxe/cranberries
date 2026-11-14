@@ -442,6 +442,7 @@ export type RoyaltyOptions = {
   membersField: string;
   titleField: string;
   titlesField?: string;
+  entryNameField?: string;
   titles?: string[];
 };
 export type RoyalTitle = { title: string; enabled: boolean };
@@ -518,7 +519,9 @@ export function royalAssignments(
   return held.map((row) => ({
     id: row.id,
     title: assigned.get(row.id)!,
-    name: String(row.name),
+    name: String(
+      (options.entryNameField && row[options.entryNameField]) || row.name,
+    ),
   }));
 }
 export function royalHonors(
@@ -808,7 +811,9 @@ export function DocumentEditor({
         placeholder={
           fieldsOf(config, type)[field]?.type === "longtext"
             ? "Add details…"
-            : undefined
+            : field === connections?.entryShortNameField
+              ? "Add a short name…"
+              : undefined
         }
         onChange={(v, b) => store.set(type, row.id, field, v, b)}
         onEmpty={
@@ -934,7 +939,7 @@ export function DocumentEditor({
                     key={r.id}
                     title={
                       inline && person(d.of)
-                        ? `${r.name}${isRoyal(r.id) ? `, ${royalAssignments(state.data[config.main], r, royalty!).find((role) => role.id === row.id)?.title || "Sovereign"} of ${row.name}` : ""}`
+                        ? `${r.name}${isRoyal(r.id) ? `, ${royalAssignments(state.data[config.main], r, royalty!).find((role) => role.id === row.id)?.title || "Sovereign"} of ${(royalty!.entryNameField && row[royalty!.entryNameField]) || row.name}` : ""}`
                         : undefined
                     }
                     aria-label={
@@ -1369,6 +1374,15 @@ export function DocumentEditor({
                 (name) => name !== "name" && name !== royalty?.membersField,
               )}
               canEdit={can}
+              onSetMembership={(row, projectId, connected) =>
+                store.link(
+                  config.main,
+                  row.id,
+                  connections.memberField,
+                  projectId,
+                  connected,
+                )
+              }
               onSetConnection={(row, field, value) =>
                 store.set(connections.groupCollection, row.id, field, value)
               }

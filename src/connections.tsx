@@ -13,6 +13,7 @@ export type ConnectionViewOptions = {
   groupCollection: string;
   memberField: string;
   detailFields?: string[];
+  entryShortNameField?: string;
   groupDetailFields?: string[];
   entryOrder?: { field: string; values: string[] };
   goals: {
@@ -32,7 +33,22 @@ export function connectionStrength(
     : goal.projects?.[project.id];
   return value === "Primary" || value === "Supporting" ? value : "Unmapped";
 }
-type WireEnd = { type: "goal" | "project"; id: string };
+export type WireEnd = {
+  type: "goal" | "project" | "entry";
+  id: string;
+  side?: "goals" | "entries";
+};
+export function connectionEnds(a: WireEnd, b: WireEnd) {
+  if (a.type === b.type) return null;
+  const project = a.type === "project" ? a : b.type === "project" ? b : null;
+  if (!project) return null;
+  const other = a === project ? b : a;
+  if (other.type === "goal" && project.side !== "entries")
+    return { kind: "goal" as const, goalId: other.id, projectId: project.id };
+  if (other.type === "entry" && project.side !== "goals")
+    return { kind: "entry" as const, entryId: other.id, projectId: project.id };
+  return null;
+}
 type Wire = {
   source: WireEnd;
   startX: number;
@@ -40,13 +56,20 @@ type Wire = {
   x: number;
   y: number;
 };
-type TubeMenu = { goalId: string; projectId: string; x: number; y: number };
+type TubeMenu = {
+  goalId?: string;
+  entryId?: string;
+  projectId: string;
+  x: number;
+  y: number;
+};
 type BandPath = {
   d: string;
   strength: string;
   active: boolean;
   goalId?: string;
   projectId?: string;
+  entryId?: string;
 };
 type Selection = { type: "goal" | "project" | "entry"; id: string } | null;
 type Props = {
@@ -59,11 +82,12 @@ type Props = {
   entryFixed: boolean;
   groupFixed: boolean;
   fields: string[];
-  renderName(type: string, row: Entity): ReactNode;
+  renderName(type: string, row: Entity, field?: string): ReactNode;
   renderField(row: Entity, name: string): ReactNode;
   renderActions(type: string, row: Entity): ReactNode;
   canEdit(type: string, row: Entity): boolean;
   onSetConnection(row: Entity, field: string, value: ConnectionStrength): void;
+  onSetMembership(entry: Entity, projectId: string, connected: boolean): void;
   onCreate(type: string, name: string, project?: string): string;
 };
 const members = (row: Entity, field: string): string[] =>
@@ -137,7 +161,15 @@ export function sortConnectionEntries(
     (a, b) =>
       relevance(a) - relevance(b) ||
       (useStatus && relevance(a) < 2 ? status(a) - status(b) : 0) ||
-      String(a.name).localeCompare(String(b.name)),
+      String(
+        (options.entryShortNameField && a[options.entryShortNameField]) ||
+          a.name,
+      ).localeCompare(
+        String(
+          (options.entryShortNameField && b[options.entryShortNameField]) ||
+            b.name,
+        ),
+      ),
   );
 }
 function AddRecord({
@@ -211,6 +243,7 @@ export function ConnectionEditor({
   renderActions,
   canEdit,
   onSetConnection,
+  onSetMembership,
   onCreate,
 }: Props) {
   const projects = data[options.groupCollection] ?? [],
@@ -238,19 +271,29 @@ export function ConnectionEditor({
     const key = node?.dataset.bandNode;
     if (key?.startsWith("goal:")) return { type: "goal", id: key.slice(5) };
     if (key?.startsWith("project:"))
-      return { type: "project", id: key.slice(8) };
+      return {
+        type: "project",
+        id: key.slice(8),
+        side: el?.closest<HTMLElement>("[data-port-side]")?.dataset
+          .portSide as WireEnd["side"],
+      };
+    if (key?.startsWith("entry:")) return { type: "entry", id: key.slice(6) };
     return null;
   };
   const editablePair = (a: WireEnd, b: WireEnd) => {
-    if (a.type === b.type) return null;
-    const goalId = a.type === "goal" ? a.id : b.id;
-    const projectId = a.type === "project" ? a.id : b.id;
-    const goal = options.goals.find((g) => g.id === goalId);
-    const project = projects.find((p) => p.id === projectId);
-    return goal?.projectField &&
-      project &&
-      canEdit(options.groupCollection, project)
-      ? { goal, project }
+    const ends = connectionEnds(a, b);
+    if (!ends) return null;
+    const project = projects.find((p) => p.id === ends.projectId);
+    if (!project) return null;
+    if (ends.kind === "entry") {
+      const entry = entries.find((e) => e.id === ends.entryId);
+      return entry && canEdit(main, entry)
+        ? { kind: "entry" as const, entry, project }
+        : null;
+    }
+    const goal = options.goals.find((g) => g.id === ends.goalId);
+    return goal?.projectField && canEdit(options.groupCollection, project)
+      ? { kind: "goal" as const, goal, project }
       : null;
   };
   const finishWire = (target: WireEnd | null, x: number, y: number) => {
@@ -258,6 +301,11 @@ export function ConnectionEditor({
     putWire(null);
     const pair = source && target ? editablePair(source, target) : null;
     if (!pair) return;
+    if (pair.kind === "entry") {
+      onSetMembership(pair.entry, pair.project.id, true);
+      setSelection({ type: "entry", id: pair.entry.id });
+      return;
+    }
     if (connectionStrength(pair.goal, pair.project) === "Unmapped")
       onSetConnection(pair.project, pair.goal.projectField!, "Supporting");
     setSelection({ type: "project", id: pair.project.id });
@@ -278,12 +326,15 @@ export function ConnectionEditor({
   const port = (end: WireEnd, label: string, disabled: boolean) =>
     !readOnly && (
       <button
-        className={`dv-band-port dv-band-port-${end.type}`}
+        className={`dv-band-port dv-band-port-${end.type}${end.side === "entries" ? " dv-band-port-output" : ""}`}
+        data-port-side={end.side}
         aria-label={label}
         title={label}
         disabled={disabled}
         aria-pressed={
-          wire?.source.type === end.type && wire.source.id === end.id
+          wire?.source.type === end.type &&
+          wire.source.id === end.id &&
+          wire.source.side === end.side
         }
         onPointerDown={(e) => {
           if (e.button !== 0) return;
@@ -301,7 +352,12 @@ export function ConnectionEditor({
         onClick={(e) => {
           if (suppress.current) return;
           const source = wireRef.current?.source;
-          if (source && (source.type !== end.type || source.id !== end.id))
+          if (
+            source &&
+            (source.type !== end.type ||
+              source.id !== end.id ||
+              source.side !== end.side)
+          )
             finishWire(end, e.clientX, e.clientY);
           else if (!source) startWire(end, e.currentTarget);
         }}
@@ -479,17 +535,19 @@ export function ConnectionEditor({
         active: boolean,
         goalId?: string,
         projectId?: string,
+        entryId?: string,
       ) => {
         const a = nodes.get(from),
           b = nodes.get(to);
         if (!a?.visible || !b?.visible) return;
         const control = Math.max(35, (b.x - a.right) * 0.55);
         next.push({
-          d: `M ${a.right - (goalId ? 8 : 0)} ${a.y} C ${a.right + control} ${a.y}, ${b.x - control} ${b.y}, ${b.x + (goalId ? 8 : 0)} ${b.y}`,
+          d: `M ${a.right - 8} ${a.y} C ${a.right + control} ${a.y}, ${b.x - control} ${b.y}, ${b.x + 8} ${b.y}`,
           strength,
           active,
           goalId,
           projectId,
+          entryId,
         });
       };
       projects.forEach((p) => {
@@ -518,6 +576,9 @@ export function ConnectionEditor({
                     options.goals.find((g) => g.id === selection.id)!,
                     p,
                   ) === "Primary"),
+              undefined,
+              p.id,
+              e.id,
             );
         });
       });
@@ -595,14 +656,23 @@ export function ConnectionEditor({
             {paths.map((p, i) => {
               const goal = options.goals.find((g) => g.id === p.goalId);
               const project = projects.find((row) => row.id === p.projectId);
+              const entry = entries.find((row) => row.id === p.entryId);
               const editable =
-                !!goal?.projectField &&
                 !!project &&
-                canEdit(options.groupCollection, project);
+                (entry
+                  ? canEdit(main, entry)
+                  : !!goal?.projectField &&
+                    canEdit(options.groupCollection, project));
               const openTube = (x: number, y: number) => {
-                if (!editable || !goal || !project) return;
+                if (!editable || !project) return;
                 putWire(null);
-                setTubeMenu({ goalId: goal.id, projectId: project.id, x, y });
+                setTubeMenu({
+                  goalId: goal?.id,
+                  entryId: entry?.id,
+                  projectId: project.id,
+                  x,
+                  y,
+                });
               };
               return (
                 <g key={p.goalId ? `${p.goalId}:${p.projectId}` : `entry-${i}`}>
@@ -623,7 +693,11 @@ export function ConnectionEditor({
                       strokeWidth={18}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${goal!.label} → ${project!.name}: ${p.strength}`}
+                      aria-label={
+                        entry
+                          ? `${project!.name} → ${entry.name}`
+                          : `${goal!.label} → ${project!.name}: ${p.strength}`
+                      }
                       onClick={(e) => openTube(e.clientX, e.clientY)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -698,7 +772,7 @@ export function ConnectionEditor({
                 >
                   {options.goals.some((g) => g.projectField) &&
                     port(
-                      { type: "project", id: p.id },
+                      { type: "project", id: p.id, side: "goals" },
                       `Connect ${p.name} to a goal`,
                       !canEdit(options.groupCollection, p),
                     )}
@@ -715,6 +789,11 @@ export function ConnectionEditor({
                     {renderName(options.groupCollection, p)}
                   </div>
                   {renderActions(options.groupCollection, p)}
+                  {port(
+                    { type: "project", id: p.id, side: "entries" },
+                    `Connect ${p.name} to an ${entryLabel}`,
+                    !entries.some((e) => canEdit(main, e)),
+                  )}
                 </div>
               ))}
             </div>
@@ -743,6 +822,11 @@ export function ConnectionEditor({
                   className={className("entry", e.id, activeEntries.has(e.id))}
                   onClick={(event) => selectBox("entry", e.id, event)}
                 >
+                  {port(
+                    { type: "entry", id: e.id },
+                    `Connect ${e.name} to a ${groupLabel}`,
+                    !canEdit(main, e),
+                  )}
                   <button
                     type="button"
                     className="dv-band-box-select"
@@ -752,12 +836,29 @@ export function ConnectionEditor({
                     }
                     onClick={() => choose("entry", e.id)}
                   />
-                  <div className="dv-band-name">{renderName(main, e)}</div>
+                  <div className="dv-band-name">
+                    {renderName(
+                      main,
+                      e,
+                      options.entryShortNameField &&
+                        String(e[options.entryShortNameField] || "").trim()
+                        ? options.entryShortNameField
+                        : "name",
+                    )}
+                  </div>
+                  {options.entryShortNameField &&
+                    String(e[options.entryShortNameField] || "").trim() &&
+                    e[options.entryShortNameField] !== e.name && (
+                      <div className="dv-band-description">
+                        {renderName(main, e)}
+                      </div>
+                    )}
                   <div className="dv-band-fields">
                     {fields
                       .filter(
                         (f) =>
                           (f !== options.memberField &&
+                            f !== options.entryShortNameField &&
                             !options.detailFields?.includes(f)) ||
                           (selection?.type === "entry" &&
                             selection.id === e.id),
@@ -765,14 +866,18 @@ export function ConnectionEditor({
                       .map((f) => (
                         <div
                           className={
-                            options.detailFields?.includes(f)
+                            options.detailFields?.includes(f) ||
+                            f === options.entryShortNameField
                               ? "dv-band-field dv-band-detail"
                               : "dv-band-field"
                           }
                           key={f}
                         >
-                          {options.detailFields?.includes(f) && (
-                            <span className="dv-band-detail-label">{f}</span>
+                          {(options.detailFields?.includes(f) ||
+                            f === options.entryShortNameField) && (
+                            <span className="dv-band-detail-label">
+                              {f.replace(/([A-Z])/g, " $1")}
+                            </span>
                           )}
                           {renderField(e, f)}
                         </div>
@@ -800,6 +905,40 @@ export function ConnectionEditor({
         (() => {
           const goal = options.goals.find((g) => g.id === tubeMenu.goalId);
           const project = projects.find((p) => p.id === tubeMenu.projectId);
+          const entry = entries.find((e) => e.id === tubeMenu.entryId);
+          if (entry && project && canEdit(main, entry))
+            return (
+              <div
+                ref={tubeMenuRef}
+                className="dv-band-tube-menu"
+                data-tube-menu
+                role="dialog"
+                aria-label={`${project.name} → ${entry.name}`}
+                style={{
+                  left: Math.max(
+                    8,
+                    Math.min(tubeMenu.x, window.innerWidth - 240),
+                  ),
+                  top: Math.max(
+                    8,
+                    Math.min(tubeMenu.y, window.innerHeight - 130),
+                  ),
+                }}
+              >
+                <strong>
+                  {String(project.name)} → {String(entry.name)}
+                </strong>
+                <button
+                  className="dv-band-tube-remove"
+                  onClick={() => {
+                    onSetMembership(entry, project.id, false);
+                    setTubeMenu(null);
+                  }}
+                >
+                  Remove connection
+                </button>
+              </div>
+            );
           if (
             !goal?.projectField ||
             !project ||

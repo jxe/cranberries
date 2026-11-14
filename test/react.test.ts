@@ -437,3 +437,67 @@ test("royal titles are mixed without replacement and stable across entry order a
     [{ title: "King", enabled: true }],
   );
 });
+
+test("connection endpoints support both graph gaps and reject incompatible ports", async () => {
+  const { connectionEnds } = await import("../src/connections");
+  const goal = { type: "goal" as const, id: "g" },
+    entry = { type: "entry" as const, id: "e" };
+  const left = { type: "project" as const, id: "p", side: "goals" as const },
+    right = { ...left, side: "entries" as const };
+  assert.deepEqual(connectionEnds(goal, left), {
+    kind: "goal",
+    goalId: "g",
+    projectId: "p",
+  });
+  assert.deepEqual(connectionEnds(left, goal), connectionEnds(goal, left));
+  assert.deepEqual(connectionEnds(right, entry), {
+    kind: "entry",
+    entryId: "e",
+    projectId: "p",
+  });
+  assert.deepEqual(connectionEnds(entry, right), connectionEnds(right, entry));
+  assert.deepEqual(
+    connectionEnds(entry, { type: "project", id: "p" }),
+    connectionEnds(right, entry),
+  );
+  for (const [a, b] of [
+    [goal, entry],
+    [goal, right],
+    [entry, left],
+    [left, right],
+    [entry, entry],
+  ])
+    assert.equal(connectionEnds(a, b), null);
+});
+
+test("royal honors use short entry names and retain full-name fallback and stable titles", async () => {
+  const { royalAssignments, royalHonors } = await import("../src/react");
+  const options = {
+    leadsField: "leads",
+    membersField: "royalLeads",
+    titleField: "royalTitle",
+    entryNameField: "shortName",
+  };
+  const person = { id: "p", name: "Ryan", royalTitle: "Prince" };
+  const entries = [
+    {
+      id: "cozy",
+      name: "Cozy syncs about shared values",
+      shortName: "Coziness",
+      royalLeads: ["p"],
+    },
+    { id: "other", name: "Convening", shortName: "", royalLeads: ["p"] },
+  ];
+  assert.deepEqual(royalHonors(entries, person, options), [
+    "Prince of Coziness",
+    "Prince of Convening",
+  ]);
+  assert.equal(
+    royalAssignments(entries, person, options)[0].title,
+    royalAssignments(
+      entries.map((e) => ({ ...e, shortName: "Changed" })),
+      person,
+      options,
+    )[0].title,
+  );
+});

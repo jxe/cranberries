@@ -353,3 +353,13 @@ the multiline Markdown editor and the normal save path.
 `groupDetailFields` exposes project text details in a Details dialog from the
 project's actions menu, including for visitors. It uses the existing multiline
 field editor without expanding the project card.
+
+Both graph gaps support drag connections in either direction, or keyboard/two
+port activation. Projects have separate goal and entry ports. Entry links use
+the main collection's membership field and normal permission/save path; clicking
+their tube offers removal. Goal contribution strength controls are unchanged.
+
+`entryShortNameField` displays a short editable entry heading with the full name
+beneath it, and uses the short name for alphabetical ordering. The field can be
+filled from the selected entry's details. `royalty.entryNameField` uses that
+same field for royal honors and portrait tooltips, falling back to the full name.
